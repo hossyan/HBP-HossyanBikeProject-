@@ -22,25 +22,28 @@ float ax,ay,az;
 float gx,gy,gz;
 float roll,pitch,yaw;
 
-#define left_motor_id 0x64
-#define right_motor_id 0x65
+#define front_motor_id 0x64
+#define back_motor_id 0x65
 
 // レジスタアドレス
 #define REG_ENABLE         0x00      // モーター有効化レジスタ
 #define REG_MODE           0x01      // 動作モード設定レジスタ
+#define REG_POSITION        0x80      // 位置設定レジスタ
 #define REG_CURRENT        0xB0      // 電流設定レジスタ
 #define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
 #define Position_Readback  0x90      // エンコーダ(位置)読み取りレジスタ
 
+
+#define position_mode   0x02      //動作モード：位置制御
 #define current_mode    0x03      //動作モード：電流制御
 
 float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
 
-float kp = 0.037;
-float ki = 0.0000002;
-float kd = 0.00056;
+float kp = 0.000;
+float ki = 0.0000000;
+float kd = 0.00000;
 
 float pid_time = 0.0;
 float pid_time_pre = 0.0;
@@ -89,7 +92,9 @@ void pid_draw() {
     }
 
     M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
-    M5.Display.printf("Output : %.0f", output * current_max);
+    M5.Display.printf("Output : %.1f", output * current_max);
+    M5.Display.setCursor(OUTPUT_X, OUTPUT_Y+20);
+    M5.Display.printf("angle : %.2f", angle);
 }
 
 // 緊急停止
@@ -153,6 +158,23 @@ void set_control_mode(uint8_t address, uint8_t mode) {
     Wire.endTransmission();
 }
 
+// roller485の位置制御
+void set_position(int8_t address, int32_t position){
+    int32_t position_value = position * 100;
+
+    Wire.beginTransmission(address);
+    Wire.write(REG_POSITION);
+
+    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
+    Wire.write(position_value & 0xFF);
+    Wire.write((position_value >> 8) & 0xFF);
+    Wire.write((position_value >> 16) & 0xFF);
+    Wire.write((position_value >> 24) & 0xFF);
+
+    Wire.endTransmission();
+}
+
+// roller485の電流制御
 void set_current(int8_t address, int32_t current) {
     int32_t current_value = current * 100;
 
@@ -203,11 +225,11 @@ void setup() {
 
     Serial.println("--- Roller Motor Control Start ---");
 
-    set_motor_enable(left_motor_id, true);
-    set_motor_enable(right_motor_id, true);
+    set_motor_enable(front_motor_id, true);
+    set_motor_enable(back_motor_id, true);
 
-    set_control_mode(left_motor_id, current_mode);
-    set_control_mode(right_motor_id, current_mode);
+    set_control_mode(front_motor_id, position_mode);
+    set_control_mode(back_motor_id, current_mode);
 
     pid_time_pre = micros();
     }
@@ -226,8 +248,8 @@ void loop() {
     M5.Imu.getAccel(&ax, &ay, &az);
     M5.Imu.getGyro(&gx, &gy, &gz);
 
-    angle_acc = atan2(ay, az) * 180.0 / PI;
-    angle = 0.98 * (angle + gx * dt) +0.02 * angle_acc;
+    angle_acc = atan2(ax, az) * 180.0 / PI;
+    angle = 0.1 * (angle + gy * dt) +0.9 * angle_acc;
 
     float error = target_angle - angle;
     integral += error * dt;
@@ -244,8 +266,8 @@ void loop() {
     }else if(output <= -1.0){
         output = -1.0;
     }
-    set_current(left_motor_id, output * current_max);
-    set_current(right_motor_id, -output * current_max);
+    set_position(front_motor_id, 10);
+    set_current(back_motor_id, -output * current_max);
 
-    Serial.printf("%f, %f, %f\n",dt, error, diriv);
+    Serial.printf("%f, %f, %f\n",angle_acc, angle, dt);
 }
