@@ -1,5 +1,10 @@
 #include <Wire.h>
 #include <M5Unified.h>
+#include <MadgwickAHRS.h>
+
+Madgwick filter;
+unsigned long microsPerReading, microsPrevious;
+float accelScale, gyroScale;
 
 #define BUTTON_X 15
 #define BUTTON_Y 15
@@ -21,6 +26,7 @@ bool emergency_button = false;
 float ax,ay,az;
 float gx,gy,gz;
 float roll,pitch,yaw;
+unsigned long microsNow;
 
 #define front_motor_id 0x64
 #define back_motor_id 0x65
@@ -28,12 +34,14 @@ float roll,pitch,yaw;
 // レジスタアドレス
 #define REG_ENABLE         0x00      // モーター有効化レジスタ
 #define REG_MODE           0x01      // 動作モード設定レジスタ
+#define REG_SPEED        0x40      // 速度設定レジスタ
 #define REG_POSITION        0x80      // 位置設定レジスタ
 #define REG_CURRENT        0xB0      // 電流設定レジスタ
 #define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
 #define Position_Readback  0x90      // エンコーダ(位置)読み取りレジスタ
 
 
+#define speed_mode   0x01      //動作モード：速度制御
 #define position_mode   0x02      //動作モード：位置制御
 #define current_mode    0x03      //動作モード：電流制御
 
@@ -45,13 +53,13 @@ float kp = 0.000;
 float ki = 0.0000000;
 float kd = 0.00000;
 
-float pid_time = 0.0;
-float pid_time_pre = 0.0;
+float now = 0.0;
+float pre_time = 0.0;
+int speed_max = 21000000;
 int current_max = 1200;
-float target_angle = 0.0;
+float target_angle = 0.5;
 float integral = 0.0;
 float pre_error = 0.0;
-float pre_time;
 
 float angle = 0.0;
 float angle_acc = 0.0;
@@ -92,9 +100,9 @@ void pid_draw() {
     }
 
     M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
-    M5.Display.printf("Output : %.1f", output * current_max);
+    M5.Display.printf("Output : %.4f", output);
     M5.Display.setCursor(OUTPUT_X, OUTPUT_Y+20);
-    M5.Display.printf("angle : %.2f", angle);
+    M5.Display.printf("angle : %.3f", pitch);
 }
 
 // 緊急停止
@@ -158,6 +166,21 @@ void set_control_mode(uint8_t address, uint8_t mode) {
     Wire.endTransmission();
 }
 
+// roller485の速度制御
+void set_speed(int8_t address, int32_t speed){
+    int32_t speed_value = speed * 100;
+
+    Wire.beginTransmission(address);
+    Wire.write(REG_SPEED);
+
+    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
+    Wire.write(speed_value & 0xFF);
+    Wire.write((speed_value >> 8) & 0xFF);
+    Wire.write((speed_value >> 16) & 0xFF);
+    Wire.write((speed_value >> 24) & 0xFF);
+
+    Wire.endTransmission();
+}
 // roller485の位置制御
 void set_position(int8_t address, int32_t position){
     int32_t position_value = position * 100;
@@ -217,6 +240,7 @@ void setup() {
     M5.Imu.begin();
     Serial.begin(115200);
     Wire.begin(); 
+    filter.begin(25);
 
     M5.Display.setTextSize(2);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -228,10 +252,13 @@ void setup() {
     set_motor_enable(front_motor_id, true);
     set_motor_enable(back_motor_id, true);
 
-    set_control_mode(front_motor_id, position_mode);
+    set_control_mode(front_motor_id, current_mode);
     set_control_mode(back_motor_id, current_mode);
 
-    pid_time_pre = micros();
+    pre_time = micros();
+    // initialize variables to pace updates to correct rate
+    microsPerReading = 1000000 / 25;
+    microsPrevious = micros();
     }
 
 void loop() {
@@ -241,33 +268,52 @@ void loop() {
     emergency_button_draw();
     display_touch();
 
-    pid_time = micros();
-    float dt = (pid_time - pid_time_pre) / 1000000.0;
-    pid_time_pre = pid_time;
-
     M5.Imu.getAccel(&ax, &ay, &az);
     M5.Imu.getGyro(&gx, &gy, &gz);
 
-    angle_acc = atan2(ax, az) * 180.0 / PI;
-    angle = 0.1 * (angle + gy * dt) +0.9 * angle_acc;
+    // check if it's time to read data and update the filter
+    microsNow = micros();
+    if (microsNow - microsPrevious >= microsPerReading) {
+        filter.updateIMU(gx, gy, gz, ax, ay, az);
 
-    float error = target_angle - angle;
-    integral += error * dt;
-    float diriv = (error - pre_error) / dt;
-    output = kp * error + ki * integral + kd * diriv;
-    pre_error = error;
+        pitch = filter.getPitch();
 
-    if(error > 45 || error < -45 || emergency_button == false){
-        output = 0;
+         // increment previous time, so we keep proper pace
+        microsPrevious = microsPrevious + microsPerReading;
+    }
+    
+    // float dt = (now - pre_time) / 1000000.0;
+    // pre_time = now;
+
+    // angle_acc = atan2(ax, az) * 180.0 / PI;
+    // angle = 0.7 * (angle + gy * dt) + 0.3 * angle_acc;
+
+    // if(-1.0 < angle && angle < 1.0){
+    //     angle = 0.0;
+    // }
+
+    now = micros();
+    static auto pid_pre_time = now;
+    if (now - pid_pre_time > 10) {
+        float error = target_angle - pitch;
+        integral += error * ((now - pid_pre_time) / 1000000.0);
+        float diriv = (error - pre_error) / ((now - pid_pre_time) / 1000000.0);
+        output = kp * error + ki * integral + kd * diriv;
+        pre_error = error;
+
+        if(error > 45 || error < -45 || emergency_button == false){
+            output = 0;
+        }
+
+        if(output >= 1.0){
+            output = 1.0;
+        }else if(output <= -1.0){
+            output = -1.0;
+        }
+        pid_pre_time = now;
+
+        set_current(back_motor_id, output * current_max);
     }
 
-    if(output >= 1.0){
-        output = 1.0;
-    }else if(output <= -1.0){
-        output = -1.0;
-    }
-    set_position(front_motor_id, 10);
-    set_current(back_motor_id, -output * current_max);
-
-    Serial.printf("%f, %f, %f\n",angle_acc, angle, dt);
+    Serial.printf("%f\n",pitch);
 }
