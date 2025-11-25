@@ -49,9 +49,9 @@ float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
 
-float kp = 0.130;
-float ki = 0.0000000;
-float kd = 0.00140;
+float kp = 0.196;
+float ki = 0.0000003;
+float kd = 0.00209;
 
 float now = 0.0;
 float pre_time = 0.0;
@@ -255,7 +255,7 @@ void setup() {
     set_control_mode(front_motor_id, position_mode);
     set_control_mode(back_motor_id, current_mode);
 
-    set_position(front_motor_id, 25);
+    set_position(front_motor_id, 0);
 
     pre_time = micros();
     // initialize variables to pace updates to correct rate
@@ -308,13 +308,13 @@ void loop() {
         }
 
         if(output >= 1.0){
-            output = 1.0;
+            output = 0.999;
         }else if(output <= -1.0){
-            output = -1.0;
+            output = -0.999;
         }
         pid_pre_time = now;
 
-        set_current(back_motor_id, -output * current_max);
+        set_current(back_motor_id, output * current_max);
     }
 
     Serial.printf("%f\n",pitch);
