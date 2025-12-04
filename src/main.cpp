@@ -49,9 +49,9 @@ float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
 
-float kp = 0.196;
-float ki = 0.0000003;
-float kd = 0.00209;
+float kp = 0.173;
+float ki = 0.0000002;
+float kd = 0.00247;
 
 float now = 0.0;
 float pre_time = 0.0;
@@ -255,7 +255,7 @@ void setup() {
     set_control_mode(front_motor_id, position_mode);
     set_control_mode(back_motor_id, current_mode);
 
-    set_position(front_motor_id, 0);
+    set_position(front_motor_id, -5);
 
     pre_time = micros();
     // initialize variables to pace updates to correct rate
