@@ -247,5 +247,9 @@ void loop() {
     set_current(left_motor_id, output * current_max);
     set_current(right_motor_id, -output * current_max);
 
-    Serial.printf("%f, %f, %f\n",dt, error, diriv);
+    Serial.print(">roll:");
+    Serial.println(roll);
+    Serial.print(">out:");
+    Serial.println(output);
+
 }
