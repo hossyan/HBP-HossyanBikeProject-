@@ -248,7 +248,7 @@ void loop() {
     set_current(right_motor_id, -output * current_max);
 
     Serial.print(">roll:");
-    Serial.println(roll);
+    Serial.println(angle / 45);
     Serial.print(">out:");
     Serial.println(output);
 
