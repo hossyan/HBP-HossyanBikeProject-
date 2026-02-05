@@ -285,7 +285,7 @@
 //     }
     
 //     // float dt = (now - pre_time) / 1000000.0;
-//     // pre_time = now;
+//     // pre_time = now;q
 
 //     // angle_acc = atan2(ax, az) * 180.0 / PI;
 //     // angle = 0.7 * (angle + gy * dt) + 0.3 * angle_acc;
