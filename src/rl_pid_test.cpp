@@ -1,5 +1,14 @@
 #include <Wire.h>
 #include <M5Unified.h>
+#include <MadgwickAHRS.h>
+#include "parameters.h"
+#include <math.h>
+
+Madgwick filter;
+unsigned long microsPerReading, microsPre;
+unsigned long microsPre_rl = 0.0;
+unsigned long microsPre_pid = 0.0;
+float accelScale, gyroScale;
 
 #define BUTTON_X 15
 #define BUTTON_Y 15
@@ -21,39 +30,50 @@ bool emergency_button = false;
 float ax,ay,az;
 float gx,gy,gz;
 float roll,pitch,yaw;
+unsigned long microsNow;
 
-#define left_motor_id 0x64
-#define right_motor_id 0x65
+#define left_motor_id 0x65
+#define right_motor_id 0x64
 
 // レジスタアドレス
 #define REG_ENABLE         0x00      // モーター有効化レジスタ
 #define REG_MODE           0x01      // 動作モード設定レジスタ
+#define REG_SPEED        0x40      // 速度設定レジスタ
+#define REG_POSITION        0x80      // 位置設定レジスタ
 #define REG_CURRENT        0xB0      // 電流設定レジスタ
 #define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
 #define Position_Readback  0x90      // エンコーダ(位置)読み取りレジスタ
 
+
+#define speed_mode   0x01      //動作モード：速度制御
+#define position_mode   0x02      //動作モード：位置制御
 #define current_mode    0x03      //動作モード：電流制御
 
 float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
 
-float kp = 0.037;
+float kp = 0.173;
 float ki = 0.0000002;
-float kd = 0.00056;
+float kd = 0.00247;
 
-float pid_time = 0.0;
-float pid_time_pre = 0.0;
+float pre_time = 0.0;
 int current_max = 1200;
-float target_angle = 0.0;
+float target_angle[1] = {0.0};
 float integral = 0.0;
 float pre_error = 0.0;
-float pre_time;
 
 float angle = 0.0;
 float angle_acc = 0.0;
 
-float output = 0;
+float pre_output[2] = {0.0, 0.0};
+
+float gx_rad = 0.0;
+float pre_roll = 0.0;
+float filtered_output = 0.0;
+
+float filtered_gx = 0.0;
+float filtered_gz = 0.0;
 
 // ボタン描画
 void button_draw() {
@@ -88,8 +108,7 @@ void pid_draw() {
         M5.Display.print(pid_names[i]);
     }
 
-    M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
-    M5.Display.printf("Output : %.0f", output * current_max);
+    
 }
 
 // 緊急停止
@@ -108,6 +127,9 @@ void emergency_button_draw(){
         old_emergency_button = emergency_button;  
         M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     }
+
+    M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
+    M5.Display.printf("angle : %.3f", roll);
 }
 
 // 画面タッチ認識
@@ -153,6 +175,7 @@ void set_control_mode(uint8_t address, uint8_t mode) {
     Wire.endTransmission();
 }
 
+// roller485の電流制御
 void set_current(int8_t address, int32_t current) {
     int32_t current_value = current * 100;
 
@@ -168,9 +191,9 @@ void set_current(int8_t address, int32_t current) {
     Wire.endTransmission();
 }
 
-long read_position(uint8_t address){
+float speed_read(uint8_t address){
     Wire.beginTransmission(address);
-    Wire.write(Position_Readback);
+    Wire.write(Speed_Readback);
     Wire.endTransmission();
 
     Wire.requestFrom(address, 4);
@@ -181,11 +204,52 @@ long read_position(uint8_t address){
         byte byte2 = Wire.read();
         byte byte3 = Wire.read();
 
-        long position_value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
-        return position_value;
+        long rpm_value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
+        rpm_value = rpm_value / 100; // データシートより
+        float speed_value = rpm_value * (2.0f * M_PI / 60.0f);
+        return speed_value;
     }
 
     return 0;
+}
+
+// AIへの入力用バッファ (5つの観測値)
+float input[5];   
+// 中間層のバッファ
+float layer1[64];
+float layer2[64];
+// AIからの出力 (目標角度)
+float target_angle[1];  
+
+// AIの計算実行 (推論)
+void run_inference() {
+    // --- 第1層: input(5) -> layer1(64) ---
+    for (int i = 0; i < 64; i++) {
+        float sum = b1[i];
+        for (int j = 0; j < 5; j++) {
+            sum += W1[i * 5 + j] * input[j];
+        }
+        layer1[i] = tanhf(sum); 
+    }
+
+    // --- 第2層: layer1(64) -> layer2(64) ---
+    for (int i = 0; i < 64; i++) {
+        float sum = b2[i];
+        for (int j = 0; j < 64; j++) {
+            sum += W2[i * 64 + j] * layer1[j];
+        }
+        layer2[i] = tanhf(sum);
+    }
+
+    // --- 第3層: layer2(64) -> output(2) ---
+    for (int i = 0; i < 1; i++) {
+        float sum = b3[i];
+        for (int j = 0; j < 64; j++) {
+            sum += W3[i * 64 + j] * layer2[j];
+        }
+        target_angle[i] = tanhf(sum);
+        // output[i] = constrain(sum, -0.021f, 0.021f);
+    }
 }
 
 void setup() {
@@ -195,14 +259,14 @@ void setup() {
     M5.Imu.begin();
     Serial.begin(115200);
     Wire.begin(); 
+    filter.begin(25);
 
     M5.Display.setTextSize(2);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     M5.Display.fillScreen(TFT_BLACK);
-    button_draw();
+    // button_draw();
 
     Serial.println("--- Roller Motor Control Start ---");
-    randomSeed(analogRead(0));
 
     set_motor_enable(left_motor_id, true);
     set_motor_enable(right_motor_id, true);
@@ -210,51 +274,86 @@ void setup() {
     set_control_mode(left_motor_id, current_mode);
     set_control_mode(right_motor_id, current_mode);
 
-    pid_time_pre = micros();
+    microsPerReading = 1000000 / 25;
+    microsPre = micros();
     }
 
 void loop() {
     M5.update();
 
-    pid_draw();
+    // pid_draw();
     emergency_button_draw();
     display_touch();
 
-    pid_time = micros();
-    float dt = (pid_time - pid_time_pre) / 1000000.0;
-    pid_time_pre = pid_time;
-
     M5.Imu.getAccel(&ax, &ay, &az);
     M5.Imu.getGyro(&gx, &gy, &gz);
+    float gx_rad = gx * (M_PI / 180.0f);
+    float gz_rad = gz * (M_PI / 180.0f);
 
-    angle_acc = atan2(ay, az) * 180.0 / PI;
-    angle = 0.98 * (angle + gx * dt) +0.02 * angle_acc;
+    filtered_gx = gx_rad * 0.8 + filtered_gx * 0.2; 
+    filtered_gz = gz_rad * 0.8 + filtered_gz * 0.2; 
 
-    float error = target_angle - angle;
+    microsNow = micros();
+    float dt = (microsNow - microsPre) / 1000000.0; 
+    angle_acc = atan2(ay, az);
+    roll = 0.98 * (roll + filtered_gx * dt) + 0.02 * angle_acc;
+    float roll_deg = roll * 180 / M_PI;
+    // gx_rad = (roll - pre_roll) / dt;
+    // pre_roll = roll;
+    microsPre = microsNow;
+
+    // 車輪回転速度(rad/s)取得
+    float left_wheel_speed = speed_read(left_motor_id);
+    float right_wheel_speed = speed_read(right_motor_id);
+
+    // ニューラルネットワークの入力に代入
+    input[0] = roll;
+    input[1] = left_wheel_speed;
+    input[2] = -right_wheel_speed;
+    input[3] = 0.0;
+
+    // for (int i = 0; i < 5; i++){
+    //     input[i] = 0;
+    // }
+
+    // auto now = millis();
+    // static auto pre = now;
+    // if (now - pre >= 10){
+        
+    // }
+    if((microsNow - microsPre_rl) >= 30000){
+        run_inference();
+        microsPre_rl = microsNow;
+    }
+    
+    float error = target_angle[0] - angle;
     integral += error * dt;
     float diriv = (error - pre_error) / dt;
-    float randomValue = (random(-1000, 1001)) / 100000.0;
-    // output = kp * error + ki * integral + kd * diriv + randomValue;
-    output = kp * error + ki * integral + kd * diriv;
+    float output = kp * error + ki * integral + kd * diriv;
     pre_error = error;
 
-    if(error > 45 || error < -45 || emergency_button == false){
-        output = 0;
-    }
+    int current_cmd = (int)(output * current_max);
+    int out_L = current_cmd;
+    int out_R = -current_cmd;
 
-    if(output >= 1.0){
-        output = 1.0;
-    }else if(output <= -1.0){
-        output = -1.0;
-    }
-    set_current(left_motor_id, output * current_max);
-    set_current(right_motor_id, -output * current_max);
+    // int out_L = -output[0] * current_max*0.5;
+    // int out_R = output[0] * current_max*0.5;
 
+    if (emergency_button == false){
+        out_L = 0.0;
+        out_R = 0.0;
+    }
+    set_current(left_motor_id, out_L);
+    set_current(right_motor_id, out_R);
+
+    // Serial.printf("%f, %f, %f\n",output[0], output[1], roll);
+    
     Serial.printf("%f\n", dt);
 
     Serial.print(">roll:");
-    Serial.println(angle * PI / 180);
-    Serial.print(">out:");
-    Serial.println(output);
-
+    Serial.println(roll);
+    Serial.print(">gx_roll:");
+    Serial.println(gx_rad);
+    Serial.print(">output:");
+    Serial.println(filtered_output);
 }
