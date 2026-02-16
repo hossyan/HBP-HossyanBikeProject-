@@ -29,10 +29,14 @@ float roll,pitch,yaw;
 #define REG_ENABLE         0x00      // モーター有効化レジスタ
 #define REG_MODE           0x01      // 動作モード設定レジスタ
 #define REG_CURRENT        0xB0      // 電流設定レジスタ
+#define REG_SPEED        0x40      // 速度設定レジスタ
 #define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
 #define Position_Readback  0x90      // エンコーダ(位置)読み取りレジスタ
+#define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
+#define Current_Readback  0xC0      // 電流値読み取りレジスタ
 
 #define current_mode    0x03      //動作モード：電流制御
+#define speed_mode    0x01      //動作モード：電流制御
 
 float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
@@ -45,6 +49,7 @@ float kd = 0.00056;
 float pid_time = 0.0;
 float pid_time_pre = 0.0;
 int current_max = 1200;
+int speed_max = 21000000;
 float target_angle = 0.0;
 float integral = 0.0;
 float pre_error = 0.0;
@@ -153,6 +158,7 @@ void set_control_mode(uint8_t address, uint8_t mode) {
     Wire.endTransmission();
 }
 
+// 電流制御
 void set_current(int8_t address, int32_t current) {
     int32_t current_value = current * 100;
 
@@ -168,9 +174,26 @@ void set_current(int8_t address, int32_t current) {
     Wire.endTransmission();
 }
 
-long read_position(uint8_t address){
+// 速度制御
+void set_speed(int8_t address, int32_t speed) {
+    int32_t speed_value = speed * 100;
+
     Wire.beginTransmission(address);
-    Wire.write(Position_Readback);
+    Wire.write(REG_SPEED);
+
+    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
+    Wire.write(speed_value & 0xFF);
+    Wire.write((speed_value >> 8) & 0xFF);
+    Wire.write((speed_value >> 16) & 0xFF);
+    Wire.write((speed_value >> 24) & 0xFF);
+
+    Wire.endTransmission();
+}
+
+// エンコーダ読み取り(rpm)
+long read_speed(uint8_t address){
+    Wire.beginTransmission(address);
+    Wire.write(Speed_Readback);
     Wire.endTransmission();
 
     Wire.requestFrom(address, 4);
@@ -181,8 +204,29 @@ long read_position(uint8_t address){
         byte byte2 = Wire.read();
         byte byte3 = Wire.read();
 
-        long position_value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
-        return position_value;
+        long value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
+        return value;
+    }
+
+    return 0;
+}
+
+// 電流値読み取り
+long read_current(uint8_t address){
+    Wire.beginTransmission(address);
+    Wire.write(Current_Readback);
+    Wire.endTransmission();
+
+    Wire.requestFrom(address, 4);
+
+    if(Wire.available() >= 4){
+        byte byte0 = Wire.read();
+        byte byte1 = Wire.read();
+        byte byte2 = Wire.read();
+        byte byte3 = Wire.read();
+
+        long value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
+        return value;
     }
 
     return 0;
@@ -207,8 +251,8 @@ void setup() {
     set_motor_enable(left_motor_id, true);
     set_motor_enable(right_motor_id, true);
 
-    set_control_mode(left_motor_id, current_mode);
-    set_control_mode(right_motor_id, current_mode);
+    set_control_mode(left_motor_id, speed_mode);
+    set_control_mode(right_motor_id, speed_mode);
 
     pid_time_pre = micros();
     }
@@ -235,7 +279,7 @@ void loop() {
     float diriv = (error - pre_error) / dt;
     float randomValue = (random(-1000, 1001)) / 100000.0;
     // output = kp * error + ki * integral + kd * diriv + randomValue;
-    output = kp * error + ki * integral + kd * diriv;
+    // output = kp * error + ki * integral + kd * diriv;
     pre_error = error;
 
     if(error > 45 || error < -45 || emergency_button == false){
@@ -247,14 +291,14 @@ void loop() {
     }else if(output <= -1.0){
         output = -1.0;
     }
-    set_current(left_motor_id, output * current_max);
-    set_current(right_motor_id, -output * current_max);
+    set_speed(left_motor_id, 0);
+    set_speed(right_motor_id, -0);
+    long left_rpm = read_speed(left_motor_id);
 
-    Serial.printf("%f\n", dt);
 
-    Serial.print(">roll:");
-    Serial.println(angle * PI / 180);
-    Serial.print(">out:");
-    Serial.println(output);
+    // Serial.print(">output:");
+    // Serial.println(100);
+    Serial.print(">rpm:");
+    Serial.println(left_rpm/100);
 
 }
