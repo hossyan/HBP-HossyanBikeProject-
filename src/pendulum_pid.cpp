@@ -42,13 +42,13 @@ float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
 
-float kp = 0.037;
-float ki = 0.0000002;
-float kd = 0.00056;
+float kp = 0.097;
+float ki = 0.0000003;
+float kd = 0.00201;
 
 float pid_time = 0.0;
 float pid_time_pre = 0.0;
-int current_max = 1200;
+int current_max = 460;
 int speed_max = 21000000;
 float target_angle = 0.0;
 float integral = 0.0;
@@ -251,8 +251,8 @@ void setup() {
     set_motor_enable(left_motor_id, true);
     set_motor_enable(right_motor_id, true);
 
-    set_control_mode(left_motor_id, speed_mode);
-    set_control_mode(right_motor_id, speed_mode);
+    set_control_mode(left_motor_id, current_mode);
+    set_control_mode(right_motor_id, current_mode);
 
     pid_time_pre = micros();
     }
@@ -279,7 +279,7 @@ void loop() {
     float diriv = (error - pre_error) / dt;
     float randomValue = (random(-1000, 1001)) / 100000.0;
     // output = kp * error + ki * integral + kd * diriv + randomValue;
-    // output = kp * error + ki * integral + kd * diriv;
+    output = kp * error + ki * integral + kd * diriv;
     pre_error = error;
 
     if(error > 45 || error < -45 || emergency_button == false){
@@ -291,14 +291,29 @@ void loop() {
     }else if(output <= -1.0){
         output = -1.0;
     }
-    set_speed(left_motor_id, 0);
-    set_speed(right_motor_id, -0);
-    long left_rpm = read_speed(left_motor_id);
-
+    set_current(left_motor_id, output * current_max);
+    set_current(right_motor_id, -output * current_max);
+    long left_current = read_current(left_motor_id);
+    long left_speed = read_speed(left_motor_id);
 
     // Serial.print(">output:");
-    // Serial.println(100);
-    Serial.print(">rpm:");
-    Serial.println(left_rpm/100);
+    // Serial.println(output);
+    // Serial.print(">current:");
+    // Serial.println(left_current);
+    // Serial.print(">rad/s:");
+    // Serial.println(left_speed);
+    // Serial.print(">ax:");
+    // Serial.println(ax);
+    // Serial.print(">ay:");
+    // Serial.println(ay);
+    // Serial.print(">az:");
+    // Serial.println(az);
+    // Serial.print(">gx:");
+    // Serial.println(gx);
+    // Serial.print(">gy:");
+    // Serial.println(gy);
+    // Serial.print(">gz:");
+    // Serial.println(gz);
+    Serial.printf("%f,%f,%f,%f,%f,%f\n",ax,ay,az,gx,gy,gz);
 
 }
