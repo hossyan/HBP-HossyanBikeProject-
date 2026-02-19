@@ -285,28 +285,29 @@
 //     M5.Imu.getAccel(&ax, &ay, &az);
 //     M5.Imu.getGyro(&gx, &gy, &gz);
 //     float gx_rad = gx * (M_PI / 180.0f);
+//     float gy_rad = gy * (M_PI / 180.0f);
 //     float gz_rad = gz * (M_PI / 180.0f);
 
-//     filtered_gx = gx_rad * 0.3 + filtered_gx * 0.7; 
+//     filtered_gx = gx_rad * 0.7 + filtered_gx * 0.3; 
 //     filtered_gz = gz_rad * 0.3 + filtered_gz * 0.7; 
 
-//     microsNow = micros();
-//     float dt = (microsNow - microsPre) / 1000000.0; 
-//     angle_acc = atan2(ay, az);
-//     roll = 0.98 * (roll + filtered_gx * dt) + 0.02 * angle_acc;
+//     // microsNow = micros();
+//     // float dt = (microsNow - microsPre) / 1000000.0; 
+//     // angle_acc = atan2(ay, az);
+//     // roll = 0.98 * (roll + gx_rad * dt) + 0.02 * angle_acc;
 //     // gx_rad = (roll - pre_roll) / dt;
 //     // pre_roll = roll;
+//     // microsPre = microsNow;
+
+//     // Madgwickfilter
+//     microsNow = micros();
+//     float dt = (float)(microsNow - microsPre) / 1000000.0f;
+//     if (dt > 0) {
+//         filter.begin(1.0f / dt); 
+//     }    
+//     filter.updateIMU(gx, gy, gz, ax, ay, az);
+//     roll = filter.getRollRadians();
 //     microsPre = microsNow;
-
-//     // // Madgwickfilter
-//     // microsNow = micros();
-//     // if (microsNow - microsPre >= microsPerReading) {
-//     //     filter.updateIMU(gx, gy, gz, ax, ay, az);
-
-//     //     roll = filter.getRollRadians();
-
-//     //     microsPre = microsPre + microsPerReading;
-//     // }
 
 //     // 車輪回転速度(rad/s)取得
 //     float left_wheel_speed = speed_read(left_motor_id);
@@ -315,9 +316,9 @@
 //     // ニューラルネットワークの入力に代入
 //     input[0] = roll;
 //     input[1] = filtered_gx;
-//     input[2] = filtered_gz;
-//     input[3] = left_wheel_speed;
-//     input[4] = -right_wheel_speed;
+//     input[2] = left_wheel_speed;
+//     input[3] = -right_wheel_speed;
+//     input[4] = 0.0;
 
 //     // for (int i = 0; i < 5; i++){
 //     //     input[i] = 0;
@@ -349,13 +350,13 @@
 
 //     // Serial.printf("%f, %f, %f\n",output[0], output[1], roll);
     
-//     Serial.printf("%f\n", dt);
+//     // Serial.printf("%f\n", dt);
 
-//     Serial.print(">roll:");
-//     Serial.println(roll);
-//     Serial.print(">gx_roll:");
-//     Serial.println(gx_rad);
-//     Serial.print(">output:");
-//     Serial.println(filtered_output);
+//     // Serial.print(">roll:");
+//     // Serial.println(roll);
+//     // Serial.print(">gx_roll:");
+//     // Serial.println(gx_rad);
+//     // Serial.print(">output:");
+//     // Serial.println(filtered_output);
 //     delay(1.5);
 // }
