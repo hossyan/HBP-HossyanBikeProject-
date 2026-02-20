@@ -205,8 +205,10 @@
 //         byte byte2 = Wire.read();
 //         byte byte3 = Wire.read();
 
-//         long value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
-//         return value;
+//         long rpm_value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
+//         rpm_value = rpm_value / 100; // データシートより
+//         float speed_value = rpm_value * (2.0f * M_PI / 60.0f);
+//         return speed_value;
 //     }
 
 //     return 0;
@@ -321,6 +323,6 @@
 //     // Serial.println(lpf_gx);
 //     // Serial.print(">gz:");
 //     // Serial.println(gz);
-//     Serial.printf("%f,%ld\n",now, left_speed);
+//     Serial.printf("%ld,%ld\n",left_current, left_speed);
 
 // }
