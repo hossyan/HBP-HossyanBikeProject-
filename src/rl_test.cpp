@@ -55,7 +55,7 @@ float ki = 0.0000002;
 float kd = 0.00247;
 
 float pre_time = 0.0;
-int current_max = 480;
+int current_max = 460;
 float target_angle = 0.0;
 float integral = 0.0;
 float pre_error = 0.0;
