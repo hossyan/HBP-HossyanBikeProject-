@@ -55,6 +55,7 @@ float ki = 0.0000002;
 float kd = 0.00247;
 
 float pre_time = 0.0;
+int current_min = 41;
 int current_max = 460;
 float target_angle = 0.0;
 float integral = 0.0;
@@ -351,10 +352,15 @@ void loop() {
     // }
     run_inference();
         // pre = now;
-
-    filtered_output = output[0] *1.0f + filtered_output*0.0f;
-
-    int current_cmd = (int)(filtered_output * current_max);
+    
+    int current_cmd = 0;
+    if(output[0] > 0){
+        current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
+    }else if(output[0] < 0){
+        current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
+        current_cmd = - current_cmd;
+    }
+    // int current_cmd = (int)(current_max * filtered_output * 1.4);
     int out_L = current_cmd;
     int out_R = -current_cmd;
 
@@ -372,18 +378,18 @@ void loop() {
     
     // Serial.printf("%f\n", dt);
 
-    Serial.print(">roll:");
-    Serial.println(roll);
-    Serial.print(">gx_roll:");
-    Serial.println(gx_rad);
-    Serial.print(">ax:");
-    Serial.println(ax);
-    Serial.print(">ay:");
-    Serial.println(ay);
-    Serial.print(">az:");
-    Serial.println(az);
+    // Serial.print(">roll:");
+    // Serial.println(roll);
+    // Serial.print(">gx_roll:");
+    // Serial.println(gx_rad);
+    // Serial.print(">output:");
+    // Serial.println(output[0]);
+    // Serial.print(">ay:");
+    // Serial.println(ay);
+    // Serial.print(">az:");
+    // Serial.println(az);
 
     // Serial.print(">speed:");
-    // Serial.println(input[3]);
+    Serial.println(current_cmd);
     delay(1.5);
 }
