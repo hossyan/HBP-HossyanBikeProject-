@@ -2,6 +2,7 @@
 #include <M5Unified.h>
 #include <MadgwickAHRS.h>
 #include "parameters.h"
+#include <PS4Controller.h>
 
 Madgwick filter;
 unsigned long microsPerReading, microsPre;
@@ -79,6 +80,9 @@ float pre_az=0.0;
 float pre_gx=0.0;
 float pre_gy=0.0;
 float pre_gz=0.0;
+
+float stick_left_y = 0.0; 
+float stick_right_x = 0.0; 
 
 // ボタン描画
 void button_draw() {
@@ -252,8 +256,8 @@ void run_inference() {
         for (int j = 0; j < 64; j++) {
             sum += W3[i * 64 + j] * layer2[j];
         }
-        output[i] = tanhf(sum);
-        // output[i] = constrain(sum, -0.021f, 0.021f);
+        // output[i] = tanhf(sum);
+        output[i] = constrain(sum, -1.0f, 1.0f);
     }
 }
 
@@ -269,6 +273,7 @@ void setup() {
     M5.Display.setTextSize(2);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     M5.Display.fillScreen(TFT_BLACK);
+    PS4.begin("");
     // button_draw();
 
     Serial.println("--- Roller Motor Control Start ---");
@@ -334,12 +339,32 @@ void loop() {
     float left_wheel_speed = speed_read(left_motor_id);
     float right_wheel_speed = speed_read(right_motor_id);
 
+    // コントローラ値取得
+    if (PS4.isConnected()) {
+        if (PS4.LStickY()) {
+            int stick_value = PS4.LStickY();
+            stick_left_y = (float)stick_value / 130; //正規化 
+            if(-0.1 < stick_left_y && stick_left_y < 0.1){
+                stick_left_y = 0;
+            }
+        }
+        if (PS4.RStickX()) {
+            stick_right_x = PS4.RStickX(); 
+        }
+    }
+
     // ニューラルネットワークの入力に代入
     input[0] = roll;
     input[1] = filtered_gx;
     input[2] = left_wheel_speed;
     input[3] = -right_wheel_speed;
-    input[4] = 0.0;
+    input[4] = stick_left_y * 2;
+    // input[0] = 0.0024496778;
+    // input[1] = 0.22504774;
+    // input[2] = -2.7366974;
+    // input[3] = -2.7368207;
+    // input[4] = 0.0;
+
 
     // for (int i = 0; i < 5; i++){
     //     input[i] = 0;
@@ -353,14 +378,14 @@ void loop() {
     run_inference();
         // pre = now;
     
-    int current_cmd = 0;
-    if(output[0] > 0){
-        current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
-    }else if(output[0] < 0){
-        current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
-        current_cmd = - current_cmd;
-    }
-    // int current_cmd = (int)(current_max * filtered_output * 1.4);
+    // int current_cmd = 0;
+    // if(output[0] > 0){
+    //     current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
+    // }else if(output[0] < 0){
+    //     current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
+    //     current_cmd = - current_cmd;
+    // }
+    int current_cmd = (int)(current_max * output[0]);
     int out_L = current_cmd;
     int out_R = -current_cmd;
 
@@ -379,17 +404,17 @@ void loop() {
     // Serial.printf("%f\n", dt);
 
     // Serial.print(">roll:");
-    // Serial.println(roll);
+    // Serial.println(input[0]);
     // Serial.print(">gx_roll:");
-    // Serial.println(gx_rad);
+    // Serial.println(input[1]);
+    // Serial.print(">wheel_vel:");
+    // Serial.println(input[2]);
+    // Serial.print(">contoroller:");
+    // Serial.println(input[4]);
     // Serial.print(">output:");
     // Serial.println(output[0]);
-    // Serial.print(">ay:");
-    // Serial.println(ay);
-    // Serial.print(">az:");
-    // Serial.println(az);
 
     // Serial.print(">speed:");
-    Serial.println(current_cmd);
+    Serial.printf("%f,%f\n", input[4], output[0]);
     delay(1.5);
 }
