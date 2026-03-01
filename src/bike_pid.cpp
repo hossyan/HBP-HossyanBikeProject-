@@ -2,10 +2,12 @@
 #include <M5Unified.h>
 #include <MadgwickAHRS.h>
 #include "parameters.h"
-#include <PS4Controller.h>
+#include <math.h>
 
 Madgwick filter;
 unsigned long microsPerReading, microsPre;
+unsigned long microsPre_rl = 0.0;
+unsigned long microsPre_pid = 0.0;
 float accelScale, gyroScale;
 
 #define BUTTON_X 15
@@ -30,8 +32,8 @@ float gx,gy,gz;
 float roll,pitch,yaw;
 unsigned long microsNow;
 
-#define left_motor_id 0x65
-#define right_motor_id 0x64
+#define back_motor_id 0x64
+#define front_motor_id 0x65
 
 // レジスタアドレス
 #define REG_ENABLE         0x00      // モーター有効化レジスタ
@@ -51,14 +53,13 @@ float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
 
-float kp = 0.173;
+float kp = 0.123;
 float ki = 0.0000002;
 float kd = 0.00247;
 
 float pre_time = 0.0;
-int current_min = 41;
-int current_max = 460;
-float target_angle = 0.0;
+int current_max = 1200;
+float target_angle[1] = {-1.5};
 float integral = 0.0;
 float pre_error = 0.0;
 
@@ -72,17 +73,8 @@ float pre_roll = 0.0;
 float filtered_output = 0.0;
 
 float filtered_gx = 0.0;
+float filtered_gy = 0.0;
 float filtered_gz = 0.0;
-
-float pre_ax=0.0;
-float pre_ay=0.0;
-float pre_az=0.0;
-float pre_gx=0.0;
-float pre_gy=0.0;
-float pre_gz=0.0;
-
-float stick_left_y = 0.0; 
-float stick_right_x = 0.0; 
 
 // ボタン描画
 void button_draw() {
@@ -138,7 +130,7 @@ void emergency_button_draw(){
     }
 
     M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
-    M5.Display.printf("angle : %.3f", roll);
+    M5.Display.printf("angle : %.3f", pitch);
 }
 
 // 画面タッチ認識
@@ -199,6 +191,21 @@ void set_current(int8_t address, int32_t current) {
 
     Wire.endTransmission();
 }
+// 位置制御
+void set_position(int8_t address, int32_t current) {
+    int32_t current_value = current * 100;
+
+    Wire.beginTransmission(address);
+    Wire.write(REG_POSITION);
+
+    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
+    Wire.write(current_value & 0xFF);
+    Wire.write((current_value >> 8) & 0xFF);
+    Wire.write((current_value >> 16) & 0xFF);
+    Wire.write((current_value >> 24) & 0xFF);
+
+    Wire.endTransmission();
+}
 
 float speed_read(uint8_t address){
     Wire.beginTransmission(address);
@@ -222,45 +229,6 @@ float speed_read(uint8_t address){
     return 0;
 }
 
-// AIへの入力用バッファ (5つの観測値)
-float input[5];   
-// 中間層のバッファ
-float layer1[64];
-float layer2[64];
-// AIからの出力 (右トルク, 左トルク)
-float output[1];  
-
-// AIの計算実行 (推論)
-void run_inference() {
-    // --- 第1層: input(5) -> layer1(64) ---
-    for (int i = 0; i < 64; i++) {
-        float sum = b1[i];
-        for (int j = 0; j < 5; j++) {
-            sum += W1[i * 5 + j] * input[j];
-        }
-        layer1[i] = tanhf(sum); 
-    }
-
-    // --- 第2層: layer1(64) -> layer2(64) ---
-    for (int i = 0; i < 64; i++) {
-        float sum = b2[i];
-        for (int j = 0; j < 64; j++) {
-            sum += W2[i * 64 + j] * layer1[j];
-        }
-        layer2[i] = tanhf(sum);
-    }
-
-    // --- 第3層: layer2(64) -> output(2) ---
-    for (int i = 0; i < 1; i++) {
-        float sum = b3[i];
-        for (int j = 0; j < 64; j++) {
-            sum += W3[i * 64 + j] * layer2[j];
-        }
-        // output[i] = tanhf(sum);
-        output[i] = constrain(sum, -1.0f, 1.0f);
-    }
-}
-
 void setup() {
     auto cfg = M5.config();
 
@@ -268,21 +236,21 @@ void setup() {
     M5.Imu.begin();
     Serial.begin(115200);
     Wire.begin(); 
+    Wire.setClock(400000);
     filter.begin(25);
 
     M5.Display.setTextSize(2);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     M5.Display.fillScreen(TFT_BLACK);
-    PS4.begin("08:F9:E0:F5:E7:D6");
     // button_draw();
 
     Serial.println("--- Roller Motor Control Start ---");
 
-    set_motor_enable(left_motor_id, true);
-    set_motor_enable(right_motor_id, true);
+    set_motor_enable(back_motor_id, true);
+    set_motor_enable(front_motor_id, true);
 
-    set_control_mode(left_motor_id, current_mode);
-    set_control_mode(right_motor_id, current_mode);
+    set_control_mode(back_motor_id, current_mode);
+    set_control_mode(front_motor_id, position_mode);
 
     microsPerReading = 1000000 / 25;
     microsPre = micros();
@@ -291,7 +259,8 @@ void setup() {
 void loop() {
     M5.update();
 
-    // pid_draw();
+    button_draw();
+    pid_draw();
     emergency_button_draw();
     display_touch();
 
@@ -301,16 +270,17 @@ void loop() {
     float gy_rad = gy * (M_PI / 180.0f);
     float gz_rad = gz * (M_PI / 180.0f);
 
-    float alpha = 0.8;
-    filtered_gx = gx_rad * alpha + filtered_gx * (1-alpha); 
-    filtered_gz = gz_rad * alpha + filtered_gz * (1-alpha); 
+    filtered_gx = gx_rad * 0.8 + filtered_gx * 0.2; 
+    filtered_gy = gy_rad * 0.8 + filtered_gy * 0.2; 
+    filtered_gz = gz_rad * 0.8 + filtered_gz * 0.2; 
 
     // microsNow = micros();
     // float dt = (microsNow - microsPre) / 1000000.0; 
-    // angle_acc = atan2(ay, az);
-    // roll = 0.98 * (roll + gx_rad * dt) + 0.02 * angle_acc;
-    // gx_rad = (roll - pre_roll) / dt;
-    // pre_roll = roll;
+    // angle_acc = atan2(ax, az);
+    // pitch = 0.98 * (pitch + filtered_gy * dt) + 0.02 * angle_acc;
+    // float pitch_deg = pitch * 180 / M_PI;
+    // // gx_rad = (roll - pre_roll) / dt;
+    // // pre_roll = roll;
     // microsPre = microsNow;
 
     // Madgwickfilter
@@ -320,103 +290,36 @@ void loop() {
         filter.begin(1.0f / dt); 
     }    
 
-    // float alpha = 0.2f;
-    // ax = ax*alpha+pre_ax*(1-alpha);
-    // ay = ay*alpha+pre_ay*(1-alpha);
-    // az = az*alpha+pre_az*(1-alpha);
-    // gx = gx*0.85+pre_gx*0.15;
-    // gy = gy*0.85+pre_gy*0.15;
-    // gz = gz*0.85+pre_gz*0.15;
-    // pre_ax, pre_ay, pre_az = ax,ay,az;
-
     filter.updateIMU(gx, gy, gz, ax, ay, az);
-    roll = filter.getRollRadians();
-    // float alpha_roll = 0.9;
-    // roll = roll*alpha_roll + pre_roll*(1-alpha_roll);
+    pitch = filter.getPitch();
     microsPre = microsNow;
 
     // 車輪回転速度(rad/s)取得
-    float left_wheel_speed = speed_read(left_motor_id);
-    float right_wheel_speed = speed_read(right_motor_id);
-
-    // コントローラ値取得
-    if (PS4.isConnected()) {
-        if (PS4.LStickY()) {
-            int stick_value = PS4.LStickY();
-            stick_left_y = (float)stick_value / 130; //正規化 
-            if(-0.1 < stick_left_y && stick_left_y < 0.1){
-                stick_left_y = 0;
-            }
-        }
-        if (PS4.RStickX()) {
-            stick_right_x = PS4.RStickX(); 
-        }
-    }
-
-    // ニューラルネットワークの入力に代入
-    input[0] = roll;
-    input[1] = filtered_gx;
-    input[2] = left_wheel_speed;
-    input[3] = -right_wheel_speed;
-    input[4] = stick_left_y * 3;
-    // input[0] = 0.0024496778;
-    // input[1] = 0.22504774;
-    // input[2] = -2.7366974;
-    // input[3] = -2.7368207;
-    // input[4] = 0.0;
-
-
-    // for (int i = 0; i < 5; i++){
-    //     input[i] = 0;
-    // }
-
-    // auto now = millis();
-    // static auto pre = now;
-    // if (now - pre >= 10){
-        
-    // }
-    run_inference();
-        // pre = now;
+    float left_wheel_speed = speed_read(back_motor_id);
+    float right_wheel_speed = speed_read(front_motor_id);
     
-    // int current_cmd = 0;
-    // if(output[0] > 0){
-    //     current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
-    // }else if(output[0] < 0){
-    //     current_cmd = (int)((current_max - current_min) * abs(output[0]) + current_min);
-    //     current_cmd = - current_cmd;
-    // }
-    int current_cmd = (int)(current_max * output[0]);
-    int out_L = current_cmd;
-    int out_R = -current_cmd;
+    float error = target_angle[0] - pitch;
+    integral += error * dt;
+    float diriv = (error - pre_error) / dt;
+    float output = kp * error + ki * integral + kd * diriv;
+    pre_error = error;
 
-    // int out_L = -output[0] * current_max*0.5;
-    // int out_R = output[0] * current_max*0.5;
+    int current_cmd = (int)(output * current_max);
 
     if (emergency_button == false){
-        out_L = 0.0;
-        out_R = 0.0;
+        current_cmd = 0.0;
     }
-    set_current(left_motor_id, out_L);
-    set_current(right_motor_id, out_R);
+    set_current(back_motor_id, current_cmd);
+    set_position(front_motor_id, -5);
 
     // Serial.printf("%f, %f, %f\n",output[0], output[1], roll);
     
     // Serial.printf("%f\n", dt);
 
-    Serial.print(">roll:");
-    Serial.println(input[0]);
-    Serial.print(">gx_roll:");
-    Serial.println(input[1]);
-    Serial.print(">wheel_vel:");
-    Serial.println(input[2]);
-    Serial.print(">contoroller:");
-    Serial.println(input[4]);
-    Serial.print(">output:");
-    Serial.println(output[0]);
-    Serial.print(">gz:");
-    Serial.println(filtered_gz);
-
-    // Serial.print(">speed:");
-    // Serial.printf("%f,%f\n", input[4], output[0]);
-    delay(1.5);
+    // Serial.print(">pitch:");
+    // Serial.println(pitch);
+    // Serial.print(">gy_roll:");
+    // Serial.println(gy_rad);
+    // Serial.print(">output:");
+    // Serial.println(current_cmd);
 }
