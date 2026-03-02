@@ -32,15 +32,16 @@
 
   <worldbody>
     <body name="body_obj" pos="0 0 0.111">
-      <freejoint />
-      <!-- <joint type="slide" axis="1 0 0" pos="0 0 0" name="root_x"/>
+      <!-- <freejoint /> -->
+      <joint type="slide" axis="1 0 0" pos="0 0 0" name="root_x"/>
       <joint type="slide" axis="0 1 0" pos="0 0 0" name="root_y"/>
       <joint type="slide" axis="0 0 1" pos="0 0 0" name="root_z"/>
       <joint type="hinge" axis="0 1 0" pos="0 0 0" name="root_y_arg"/>
       <joint type="hinge" axis="0 0 1" pos="0 0 0" name="root_z_arg"/>
-      <joint type="hinge" axis="1 0 0" pos="0 0 0" name="root_x_arg"/> -->
-      <geom class="visual" type="mesh" mesh="body" rgba="1.0 1.0 1.0 1.0"/>
+      <!-- <joint type="hinge" axis="1 0 0" pos="0 0 0" name="root_x_arg"/> -->
+      <!-- <geom class="visual" type="mesh" mesh="body" rgba="1.0 1.0 1.0 1.0"/> -->
       <geom type="mesh" mesh="body" group="0" />
+      <geom type="mesh" mesh="body" group="0" contype="0" conaffinity="0"/>
       <inertial pos="-0.015137 0 -0.012311" mass="0.238073" diaginertia="1.221e-4 4.210e-4 3.801e-4" />
       <site name="imu_site" pos="0 0 0.003" size="0.005"/>
 
@@ -51,6 +52,7 @@
         <inertial pos="-0 -0.001407 -0" mass="0.071977" diaginertia="2.0388694e-5 3.4547509e-5 2.0388698e-5" />
         <geom class="visual" type="mesh" mesh="back_tire"/>
         <geom type="mesh" mesh="back_tire" group="0"/>
+        <geom class="visual" type="box" size="0.005 0.015 0.002" pos="0.02 -0.002 0" rgba="1 0 0 1"/>
       </body>
 
       <!-- front_tire_holder -->
@@ -67,6 +69,7 @@
           <inertial pos="-0 -0 -0" mass="0.045011" diaginertia="1.3522043e-5 2.6042188e-5 1.3522044e-5" />
           <geom class="visual" type="mesh" mesh="front_tire" rgba="1.0 1.0 1.0 1.0"/>
           <geom type="mesh" mesh="front_tire" group="0" />
+          <geom class="visual" type="box" size="0.005 0.005 0.002" pos="0.02 -0.002 0" rgba="1 0 0 1"/>
         </body>
       </body>
     </body>
@@ -84,6 +87,7 @@
 
   <contact>
     <exclude body1="body_obj" body2="back_tire" />
+    <exclude body1="body_obj" body2="front_tire" />
     <exclude body1="body_obj" body2="front_tire_holder" />
     <exclude body1="front_tire_holder" body2="front_tire" />
   </contact>
