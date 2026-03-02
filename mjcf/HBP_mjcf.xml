@@ -42,6 +42,7 @@
       <geom class="visual" type="mesh" mesh="body" rgba="1.0 1.0 1.0 1.0"/>
       <geom type="mesh" mesh="body" group="0" />
       <inertial pos="-0.015137 0 -0.012311" mass="0.238073" diaginertia="1.221e-4 4.210e-4 3.801e-4" />
+      <site name="imu_site" pos="0 0 0.003" size="0.005"/>
 
 
       <!-- back_tire -->
