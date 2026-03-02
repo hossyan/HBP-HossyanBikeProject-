@@ -53,13 +53,13 @@ float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
 
-float kp = 0.123;
+float kp = 0.130;
 float ki = 0.0000002;
-float kd = 0.00247;
+float kd = 0.00180;
 
 float pre_time = 0.0;
 int current_max = 1200;
-float target_angle[1] = {-1.5};
+float target_angle[1] = {-2.0};
 float integral = 0.0;
 float pre_error = 0.0;
 
