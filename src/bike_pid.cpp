@@ -59,7 +59,7 @@ float kd = 0.00180;
 
 float pre_time = 0.0;
 int current_max = 1200;
-float target_angle[1] = {-2.0};
+float target_angle[1] = {0.0};
 float integral = 0.0;
 float pre_error = 0.0;
 
@@ -134,29 +134,66 @@ void emergency_button_draw(){
 }
 
 // 画面タッチ認識
+// void display_touch() {
+//     if (M5.Touch.getCount() > 0) {
+//         auto t = M5.Touch.getDetail();
+//         if(!buttonPressed) {
+//             buttonPressed = true;
+//             for(int i = 0; i < 3; i++){
+//                 for(int j = 0; j < 2; j++){
+//                     int x = BUTTON_X + BUTTON_INC_X * i;
+//                     int y = BUTTON_Y + BUTTON_INC_Y * j;
+//                     if(t.x > x && t.x < x + BUTTON_W && t.y > y && t.y < y + BUTTON_H){
+//                         float inc = (i==0 ? inc_kp : i==1 ? inc_ki : inc_kd);
+//                         if(j == 0) { if(i==0) kp += inc; else if(i==1) ki += inc; else if(i==2) kd += inc;}
+//                         else { if(i==0) kp -= inc; else if(i==1) ki -= inc; else if(i==2) kd -= inc; }
+//                     }
+//                 }
+//             }
+//             if(t.x > EMERGENCY_BUTTON_X - EMERGENCY_CIRCLE && t.x < EMERGENCY_BUTTON_X + EMERGENCY_CIRCLE &&
+//                t.y > EMERGENCY_BUTTON_Y - EMERGENCY_CIRCLE && t.y < EMERGENCY_BUTTON_Y + EMERGENCY_CIRCLE){
+//                 emergency_button = !emergency_button;
+//             }
+//         }
+//     } else {
+//         buttonPressed = false;
+//     }
+// }
+
+// 画面タッチ認識（長押し対応版）
 void display_touch() {
     if (M5.Touch.getCount() > 0) {
         auto t = M5.Touch.getDetail();
-        if(!buttonPressed) {
-            buttonPressed = true;
-            for(int i = 0; i < 3; i++){
-                for(int j = 0; j < 2; j++){
-                    int x = BUTTON_X + BUTTON_INC_X * i;
-                    int y = BUTTON_Y + BUTTON_INC_Y * j;
-                    if(t.x > x && t.x < x + BUTTON_W && t.y > y && t.y < y + BUTTON_H){
-                        float inc = (i==0 ? inc_kp : i==1 ? inc_ki : inc_kd);
-                        if(j == 0) { if(i==0) kp += inc; else if(i==1) ki += inc; else if(i==2) kd += inc;}
-                        else { if(i==0) kp -= inc; else if(i==1) ki -= inc; else if(i==2) kd -= inc; }
+        
+        // --- PID値の変更セクション（長押しで連続反応） ---
+        for(int i = 0; i < 3; i++){
+            for(int j = 0; j < 2; j++){
+                int x = BUTTON_X + BUTTON_INC_X * i;
+                int y = BUTTON_Y + BUTTON_INC_Y * j;
+                
+                if(t.x > x && t.x < x + BUTTON_W && t.y > y && t.y < y + BUTTON_H){
+                    float inc = (i==0 ? inc_kp : i==1 ? inc_ki : inc_kd);
+                    
+                    // 必要に応じて変化速度を調整（例：inc * 0.1）
+                    if(j == 0) { 
+                        if(i==0) kp += inc; else if(i==1) ki += inc; else if(i==2) kd += inc;
+                    } else { 
+                        if(i==0) kp -= inc; else if(i==1) ki -= inc; else if(i==2) kd -= inc; 
                     }
                 }
             }
+        }
+
+        // --- 緊急停止ボタン（誤作動防止のため、ここだけは「1回押し」を維持） ---
+        if(!buttonPressed) { // 前のフレームで押されていなかった場合のみ実行
             if(t.x > EMERGENCY_BUTTON_X - EMERGENCY_CIRCLE && t.x < EMERGENCY_BUTTON_X + EMERGENCY_CIRCLE &&
                t.y > EMERGENCY_BUTTON_Y - EMERGENCY_CIRCLE && t.y < EMERGENCY_BUTTON_Y + EMERGENCY_CIRCLE){
                 emergency_button = !emergency_button;
             }
         }
+        buttonPressed = true; // 押されている状態を記録
     } else {
-        buttonPressed = false;
+        buttonPressed = false; // 指が離れたらリセット
     }
 }
 
