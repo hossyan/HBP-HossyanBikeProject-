@@ -134,7 +134,7 @@ void loop() {
     microsPre = microsNow;
 
     // エンコーダ値取得
-    int zero_position = 55;
+    int zero_position = 55; //deg
     float flont_wheel_position = (read_position(flont_motor_id) + zero_position) * (2 * M_PI / 360);
     float back_wheel_speed = read_speed(back_motor_id);
 
@@ -192,7 +192,7 @@ void loop() {
     }
 
     // モータ制御
-    set_position(flont_motor_id, flont_out);
+    set_position(flont_motor_id, flont_out * 180 / M_PI); // degに換算
     set_speed(back_motor_id, back_out);
 
     delay(1.5); // 制御周期を10msにするため
