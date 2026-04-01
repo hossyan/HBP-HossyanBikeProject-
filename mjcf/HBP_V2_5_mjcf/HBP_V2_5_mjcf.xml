@@ -34,13 +34,13 @@
       <freejoint />
       <geom class="visual" type="mesh" mesh="body" rgba="1.0 1.0 1.0 1.0"/>
       <geom type="mesh" mesh="body" group="0" />
-      <inertial pos="-0.015137 0 -0.012311" mass="0.238073" diaginertia="1.221e-4 4.210e-4 3.801e-4" />
+      <inertial pos="0.042941 0.000014 -0.02614" mass="0.2438" diaginertia="2.999e-4 4.445e-4 3.941e-4" />
       <site name="imu_site" pos="0.01 0 0.004"/>
       
       <!-- back-tire -->
       <body name="back-tire" pos="0.065528 0.0 -0.045">
         <joint name="back_tire_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false" damping="0.00001" />
-        <inertial pos="-0 -0.001407 -0" mass="0.071977" diaginertia="2.0388694e-5 3.4547509e-5 2.0388698e-5" />
+        <inertial pos="0.0 0.0 0.0" mass="0.021" diaginertia="6.595356e-6 1.2702637e-5 6.595358e-6" />
         <geom class="visual" type="mesh" mesh="back-tire"/>
         <geom type="mesh" mesh="back-tire" group="0"/>
       </body>
@@ -48,7 +48,7 @@
       <!-- front-tire -->
       <body name="front-tire" pos="-0.035 0.0 -0.045" quat="0.866025291583566 0 0 -0.500000194337561">
         <joint name="front_tire_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false" damping="0.00001" />
-        <inertial pos="-0 -0 -0" mass="0.045011" diaginertia="1.3522043e-5 2.6042188e-5 1.3522044e-5" />
+        <inertial pos="0.0 0.0 0.0" mass="0.026" diaginertia="7.810778e-6 1.5042828e-5 7.810779e-6" />
         <geom class="visual" type="mesh" mesh="front-tire" rgba="1.0 1.0 1.0 1.0"/>
         <geom type="mesh" mesh="front-tire" group="0" />
       </body>
