@@ -8,7 +8,7 @@ MA = 12.0
 MB = 8.0
 g = 9.81
 Kt = 0.09549
-# Kt = 0.0152
+# Kt = 0.070175
 R = 0.055
 V = 32.0
 eta = 0.5
@@ -76,7 +76,7 @@ def calc_height(l_val, G):
 
 # --- 計算と描画 ---
 l_list = np.linspace(0.5, 0.8, 100)
-G_list = np.linspace(20, 80, 100)
+G_list = np.linspace(10, 70, 100)
 X, Y = np.meshgrid(l_list, G_list)
 Z = np.vectorize(calc_height)(X, Y)
 
