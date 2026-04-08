@@ -1,8 +1,64 @@
-#include <Wire.h>
 #include <M5Unified.h>
+#include <mcp_can.h>
+#include <SPI.h>
 #include <MadgwickAHRS.h>
-#include "parameters.h"
-#include <math.h>
+
+
+// --- ピン・ハードウェア設定 ---
+#define CAN0_INT 15
+const int SPI_CS_PIN = 27; 
+MCP_CAN CAN0(SPI_CS_PIN);
+long unsigned int rxId;
+unsigned char len = 0;
+unsigned char buf[8];
+
+// --- モーター基本設定 ---
+#define MOTOR1_ID  0x7F
+#define MOTOR2_ID  0x7E
+#define MASTER_ID 0x00
+
+// --- CyberGear 通信モード (拡張ID上位5bit) ---
+#define MODE_MOTOR_ENABLE     0x03   
+#define MODE_SET_ZERO_POS     0x06   
+#define MODE_PARAM_WRITE      0x12   
+
+// --- CyberGear 内部レジスタインデックス ---
+#define INDEX_RUN_MODE        0x7005 // 1:位置, 2:速度, 3:電流
+#define INDEX_TARGET_POS      0x7016 // 目標位置 (float, rad)
+#define INDEX_TARGET_SPD      0x700A // 目標速度 (float, rad/s)
+#define INDEX_TARGET_CUR      0x7006 // 目標電流 (float, A)
+#define INDEX_LIMIT_SPD       0x7017 // 速度制限 (float)
+
+// --- モード定義 ---
+#define CONTROL_MODE_POS      1
+#define CONTROL_MODE_SPD      2
+#define CONTROL_MODE_CUR      3
+
+// --- 制御目標値 (テスト用) ---
+float target_position = 1.57f; // 90度
+float target_velocity = 2.0f;   // 2 rad/s
+float target_current  = 0.3f;   // 0.3 A
+
+int current_mode = CONTROL_MODE_SPD; // デフォルトモード
+
+// 関数プロトタイプ
+void init_can();
+void enable_motor(uint8_t motor_id);
+void set_zero_position(uint8_t motor_id);
+void send_parameter_write(uint8_t motor_id, uint16_t param_index, float value, uint8_t is_byte = 0);
+
+// cybergear制御関数
+void control_position(uint8_t motor_id, float rad);
+void control_velocity(uint8_t motor_id, float rad_s);
+void control_current(uint8_t motor_id, float ampere);
+void change_mode(uint8_t motor_id, uint8_t mode);
+
+// --- 追加：uint16をfloatに変換する関数 ---
+float uint_to_float(uint16_t x, float x_min, float x_max, int bits) {
+    float span = x_max - x_min;
+    float offset = x_min;
+    return (float)x * span / ((1 << bits) - 1) + offset;
+}
 
 Madgwick filter;
 unsigned long microsPerReading, microsPre;
@@ -32,23 +88,6 @@ float gx,gy,gz;
 float roll,pitch,yaw;
 unsigned long microsNow;
 
-#define back_motor_id 0x64
-#define front_motor_id 0x65
-
-// レジスタアドレス
-#define REG_ENABLE         0x00      // モーター有効化レジスタ
-#define REG_MODE           0x01      // 動作モード設定レジスタ
-#define REG_SPEED        0x40      // 速度設定レジスタ
-#define REG_POSITION        0x80      // 位置設定レジスタ
-#define REG_CURRENT        0xB0      // 電流設定レジスタ
-#define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
-#define Position_Readback  0x90      // エンコーダ(位置)読み取りレジスタ
-
-
-#define speed_mode   0x01      //動作モード：速度制御
-#define position_mode   0x02      //動作モード：位置制御
-#define current_mode    0x03      //動作モード：電流制御
-
 float inc_kp = 0.001;
 float inc_ki = 0.0000001; 
 float inc_kd = 0.00001;
@@ -58,7 +97,7 @@ float ki = 0.0000002;
 float kd = 0.00180;
 
 float pre_time = 0.0;
-int current_max = 1200;
+int speed_max = 500;
 float target_angle[1] = {0.0};
 float integral = 0.0;
 float pre_error = 0.0;
@@ -133,33 +172,6 @@ void emergency_button_draw(){
     M5.Display.printf("angle : %.3f", pitch);
 }
 
-// 画面タッチ認識
-// void display_touch() {
-//     if (M5.Touch.getCount() > 0) {
-//         auto t = M5.Touch.getDetail();
-//         if(!buttonPressed) {
-//             buttonPressed = true;
-//             for(int i = 0; i < 3; i++){
-//                 for(int j = 0; j < 2; j++){
-//                     int x = BUTTON_X + BUTTON_INC_X * i;
-//                     int y = BUTTON_Y + BUTTON_INC_Y * j;
-//                     if(t.x > x && t.x < x + BUTTON_W && t.y > y && t.y < y + BUTTON_H){
-//                         float inc = (i==0 ? inc_kp : i==1 ? inc_ki : inc_kd);
-//                         if(j == 0) { if(i==0) kp += inc; else if(i==1) ki += inc; else if(i==2) kd += inc;}
-//                         else { if(i==0) kp -= inc; else if(i==1) ki -= inc; else if(i==2) kd -= inc; }
-//                     }
-//                 }
-//             }
-//             if(t.x > EMERGENCY_BUTTON_X - EMERGENCY_CIRCLE && t.x < EMERGENCY_BUTTON_X + EMERGENCY_CIRCLE &&
-//                t.y > EMERGENCY_BUTTON_Y - EMERGENCY_CIRCLE && t.y < EMERGENCY_BUTTON_Y + EMERGENCY_CIRCLE){
-//                 emergency_button = !emergency_button;
-//             }
-//         }
-//     } else {
-//         buttonPressed = false;
-//     }
-// }
-
 // 画面タッチ認識（長押し対応版）
 void display_touch() {
     if (M5.Touch.getCount() > 0) {
@@ -197,101 +209,31 @@ void display_touch() {
     }
 }
 
-// roller485のセットアップ
-void set_motor_enable(uint8_t address, bool enable) {
-    Wire.beginTransmission(address);
-    Wire.write(REG_ENABLE);
-    Wire.write(enable ? 0x01 : 0x00);
-    Wire.endTransmission();
-}
-
-// roller485の動作モード設定
-void set_control_mode(uint8_t address, uint8_t mode) {
-    Wire.beginTransmission(address);
-    Wire.write(REG_MODE);
-    Wire.write(mode);
-    Wire.endTransmission();
-}
-
-// roller485の電流制御
-void set_current(int8_t address, int32_t current) {
-    int32_t current_value = current * 100;
-
-    Wire.beginTransmission(address);
-    Wire.write(REG_CURRENT);
-
-    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
-    Wire.write(current_value & 0xFF);
-    Wire.write((current_value >> 8) & 0xFF);
-    Wire.write((current_value >> 16) & 0xFF);
-    Wire.write((current_value >> 24) & 0xFF);
-
-    Wire.endTransmission();
-}
-// 位置制御
-void set_position(int8_t address, int32_t current) {
-    int32_t current_value = current * 100;
-
-    Wire.beginTransmission(address);
-    Wire.write(REG_POSITION);
-
-    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
-    Wire.write(current_value & 0xFF);
-    Wire.write((current_value >> 8) & 0xFF);
-    Wire.write((current_value >> 16) & 0xFF);
-    Wire.write((current_value >> 24) & 0xFF);
-
-    Wire.endTransmission();
-}
-
-float speed_read(uint8_t address){
-    Wire.beginTransmission(address);
-    Wire.write(Speed_Readback);
-    Wire.endTransmission();
-
-    Wire.requestFrom(address, 4);
-
-    if(Wire.available() >= 4){
-        byte byte0 = Wire.read();
-        byte byte1 = Wire.read();
-        byte byte2 = Wire.read();
-        byte byte3 = Wire.read();
-
-        long rpm_value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
-        rpm_value = rpm_value / 100; // データシートより
-        float speed_value = rpm_value * (2.0f * M_PI / 60.0f);
-        return speed_value;
-    }
-
-    return 0;
-}
-
 void setup() {
     auto cfg = M5.config();
-
     M5.begin(cfg);
     M5.Imu.begin();
     Serial.begin(115200);
-    Wire.begin(); 
-    Wire.setClock(400000);
     filter.begin(25);
 
     M5.Display.setTextSize(2);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
     M5.Display.fillScreen(TFT_BLACK);
-    // button_draw();
-
-    Serial.println("--- Roller Motor Control Start ---");
-
-    set_motor_enable(back_motor_id, true);
-    set_motor_enable(front_motor_id, true);
-
-    set_control_mode(back_motor_id, current_mode);
-    set_control_mode(front_motor_id, position_mode);
-
+    
     microsPerReading = 1000000 / 25;
     microsPre = micros();
-    }
+
+    init_can();
+    delay(1000);
+
+    enable_motor(MOTOR1_ID);
+    enable_motor(MOTOR2_ID);
+    delay(100);
+
+    // 初期モード設定
+    change_mode(MOTOR1_ID, CONTROL_MODE_POS);
+    change_mode(MOTOR2_ID, CONTROL_MODE_SPD);
+}
 
 void loop() {
     M5.update();
@@ -310,15 +252,6 @@ void loop() {
     filtered_gx = gx_rad * 0.8 + filtered_gx * 0.2; 
     filtered_gy = gy_rad * 0.8 + filtered_gy * 0.2; 
     filtered_gz = gz_rad * 0.8 + filtered_gz * 0.2; 
-
-    // microsNow = micros();
-    // float dt = (microsNow - microsPre) / 1000000.0; 
-    // angle_acc = atan2(ax, az);
-    // pitch = 0.98 * (pitch + filtered_gy * dt) + 0.02 * angle_acc;
-    // float pitch_deg = pitch * 180 / M_PI;
-    // // gx_rad = (roll - pre_roll) / dt;
-    // // pre_roll = roll;
-    // microsPre = microsNow;
 
     // Madgwickfilter
     microsNow = micros();
@@ -341,22 +274,69 @@ void loop() {
     float output = kp * error + ki * integral + kd * diriv;
     pre_error = error;
 
-    int current_cmd = (int)(output * current_max);
+    int current_cmd = (int)(output * speed_max);
 
     if (emergency_button == false){
         current_cmd = 0.0;
     }
-    set_current(back_motor_id, current_cmd);
-    set_position(front_motor_id, -5);
 
-    // Serial.printf("%f, %f, %f\n",output[0], output[1], roll);
+    control_velocity(MOTOR2_ID, current_cmd)
+
+    delay(1); 
+}
+
+// --- ID指定対応：専用制御関数 ---
+
+void control_position(uint8_t motor_id, float rad) {
+    send_parameter_write(motor_id, INDEX_TARGET_POS, rad, 0);
+}
+
+void control_velocity(uint8_t motor_id, float rad_s) {
+    send_parameter_write(motor_id, INDEX_TARGET_SPD, rad_s, 0);
+}
+
+void control_current(uint8_t motor_id, float ampere) {
+    send_parameter_write(motor_id, INDEX_TARGET_CUR, ampere, 0);
+}
+
+void change_mode(uint8_t motor_id, uint8_t mode) {
+    send_parameter_write(motor_id, INDEX_RUN_MODE, (float)mode, 1);
+    delay(50);
+}
+
+// --- ID指定対応：通信基盤関数 ---
+
+void enable_motor(uint8_t motor_id) {
+    uint32_t id = ((uint32_t)MODE_MOTOR_ENABLE << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
+    uint8_t dummy[8] = {0};
+    CAN0.sendMsgBuf(id, 1, 0, dummy);
+}
+
+void set_zero_position(uint8_t motor_id) {
+    uint32_t id = ((uint32_t)MODE_SET_ZERO_POS << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
+    uint8_t dummy[8] = {0};
+    CAN0.sendMsgBuf(id, 1, 8, dummy);
+}
+
+void send_parameter_write(uint8_t motor_id, uint16_t param_index, float value, uint8_t is_byte) {
+    uint32_t id = ((uint32_t)MODE_PARAM_WRITE << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
+    uint8_t data[8] = {0};
     
-    // Serial.printf("%f\n", dt);
+    data[0] = param_index & 0xFF;
+    data[1] = (param_index >> 8) & 0xFF;
 
-    // Serial.print(">pitch:");
-    // Serial.println(pitch);
-    // Serial.print(">gy_roll:");
-    // Serial.println(gy_rad);
-    // Serial.print(">output:");
-    // Serial.println(current_cmd);
+    if (is_byte) {
+        data[4] = (uint8_t)value;
+    } else {
+        memcpy(&data[4], &value, 4);
+    }
+    CAN0.sendMsgBuf(id, 1, 8, data);
+}
+
+void init_can() {
+    if(CAN0.begin(MCP_ANY, CAN_1000KBPS, MCP_8MHZ) == CAN_OK) {
+        CAN0.setMode(MCP_NORMAL);
+    } else {
+        while(1) delay(10);
+    }
 }
