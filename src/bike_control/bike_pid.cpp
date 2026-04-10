@@ -1,139 +1,139 @@
-#include <Wire.h>
-#include <M5Unified.h>
-#include <MadgwickAHRS.h>
-#include "parameters.h"
-#include <math.h>
+// #include <Wire.h>
+// #include <M5Unified.h>
+// #include <MadgwickAHRS.h>
+// #include "parameters.h"
+// #include <math.h>
 
-Madgwick filter;
-unsigned long microsPerReading, microsPre;
-unsigned long microsPre_rl = 0.0;
-unsigned long microsPre_pid = 0.0;
-float accelScale, gyroScale;
+// Madgwick filter;
+// unsigned long microsPerReading, microsPre;
+// unsigned long microsPre_rl = 0.0;
+// unsigned long microsPre_pid = 0.0;
+// float accelScale, gyroScale;
 
-#define BUTTON_X 15
-#define BUTTON_Y 15
-#define BUTTON_W 70
-#define BUTTON_H 50
-#define BUTTON_INC_X 110
-#define BUTTON_INC_Y 90
+// #define BUTTON_X 15
+// #define BUTTON_Y 15
+// #define BUTTON_W 70
+// #define BUTTON_H 50
+// #define BUTTON_INC_X 110
+// #define BUTTON_INC_Y 90
 
-#define EMERGENCY_BUTTON_X 50
-#define EMERGENCY_BUTTON_Y 200
-#define EMERGENCY_CIRCLE 35
+// #define EMERGENCY_BUTTON_X 50
+// #define EMERGENCY_BUTTON_Y 200
+// #define EMERGENCY_CIRCLE 35
 
-#define OUTPUT_X 130
-#define OUTPUT_Y 190
+// #define OUTPUT_X 130
+// #define OUTPUT_Y 190
 
-bool buttonPressed = false;
-bool emergency_button = false;
+// bool buttonPressed = false;
+// bool emergency_button = false;
 
-float ax,ay,az;
-float gx,gy,gz;
-float roll,pitch,yaw;
-unsigned long microsNow;
+// float ax,ay,az;
+// float gx,gy,gz;
+// float roll,pitch,yaw;
+// unsigned long microsNow;
 
-#define back_motor_id 0x64
-#define front_motor_id 0x65
+// #define back_motor_id 0x64
+// #define front_motor_id 0x65
 
-// レジスタアドレス
-#define REG_ENABLE         0x00      // モーター有効化レジスタ
-#define REG_MODE           0x01      // 動作モード設定レジスタ
-#define REG_SPEED        0x40      // 速度設定レジスタ
-#define REG_POSITION        0x80      // 位置設定レジスタ
-#define REG_CURRENT        0xB0      // 電流設定レジスタ
-#define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
-#define Position_Readback  0x90      // エンコーダ(位置)読み取りレジスタ
+// // レジスタアドレス
+// #define REG_ENABLE         0x00      // モーター有効化レジスタ
+// #define REG_MODE           0x01      // 動作モード設定レジスタ
+// #define REG_SPEED        0x40      // 速度設定レジスタ
+// #define REG_POSITION        0x80      // 位置設定レジスタ
+// #define REG_CURRENT        0xB0      // 電流設定レジスタ
+// #define Speed_Readback     0x60      // エンコーダ(rpm)読み取りレジスタ
+// #define Position_Readback  0x90      // エンコーダ(位置)読み取りレジスタ
 
 
-#define speed_mode   0x01      //動作モード：速度制御
-#define position_mode   0x02      //動作モード：位置制御
-#define current_mode    0x03      //動作モード：電流制御
+// #define speed_mode   0x01      //動作モード：速度制御
+// #define position_mode   0x02      //動作モード：位置制御
+// #define current_mode    0x03      //動作モード：電流制御
 
-float inc_kp = 0.001;
-float inc_ki = 0.0000001; 
-float inc_kd = 0.00001;
+// float inc_kp = 0.005;
+// float inc_ki = 0.0000001; 
+// float inc_kd = 0.0001;
 
-float kp = 0.130;
-float ki = 0.0000002;
-float kd = 0.00180;
+// float kp = 0.250;
+// float ki = 0.000010;
+// float kd = 0.00430;
 
-float pre_time = 0.0;
-int current_max = 1200;
-float target_angle[1] = {0.0};
-float integral = 0.0;
-float pre_error = 0.0;
+// float pre_time = 0.0;
+// int current_max = 1200;
+// float target_angle[1] = {0.0};
+// float integral = 0.0;
+// float pre_error = 0.0;
 
-float angle = 0.0;
-float angle_acc = 0.0;
+// float angle = 0.0;
+// float angle_acc = 0.0;
 
-float pre_output[2] = {0.0, 0.0};
+// float pre_output[2] = {0.0, 0.0};
 
-float gx_rad = 0.0;
-float pre_roll = 0.0;
-float filtered_output = 0.0;
+// float gx_rad = 0.0;
+// float pre_roll = 0.0;
+// float filtered_output = 0.0;
 
-float filtered_gx = 0.0;
-float filtered_gy = 0.0;
-float filtered_gz = 0.0;
+// float filtered_gx = 0.0;
+// float filtered_gy = 0.0;
+// float filtered_gz = 0.0;
 
-// ボタン描画
-void button_draw() {
-    for(int i = 0; i < 3; i++) {
-        for(int j = 0; j < 2; j++){
-            int x = BUTTON_X + BUTTON_INC_X * i;
-            int y = BUTTON_Y + BUTTON_INC_Y * j;
-            M5.Display.fillRoundRect(x, y, BUTTON_W, BUTTON_H, 10, TFT_DARKGRAY);
+// // ボタン描画
+// void button_draw() {
+//     for(int i = 0; i < 3; i++) {
+//         for(int j = 0; j < 2; j++){
+//             int x = BUTTON_X + BUTTON_INC_X * i;
+//             int y = BUTTON_Y + BUTTON_INC_Y * j;
+//             M5.Display.fillRoundRect(x, y, BUTTON_W, BUTTON_H, 10, TFT_DARKGRAY);
 
-            int triY1 = y + (j==0 ? 15 : BUTTON_H - 15);
-            int triY2 = y + (j==0 ? BUTTON_H - 18 : 18);
-            M5.Display.fillTriangle(x + BUTTON_W / 2 , triY1, x + 20, triY2, x + BUTTON_W - 20, triY2, TFT_BLACK);
-        }
-    }
-}
+//             int triY1 = y + (j==0 ? 15 : BUTTON_H - 15);
+//             int triY2 = y + (j==0 ? BUTTON_H - 18 : 18);
+//             M5.Display.fillTriangle(x + BUTTON_W / 2 , triY1, x + 20, triY2, x + BUTTON_W - 20, triY2, TFT_BLACK);
+//         }
+//     }
+// }
 
-// PID値表示
-void pid_draw() {
-    float pid_vals[3] = {kp, ki, kd};
-    const char* pid_names[3] = {"kp", "ki", "kd"};
+// // PID値表示
+// void pid_draw() {
+//     float pid_vals[3] = {kp, ki, kd};
+//     const char* pid_names[3] = {"kp", "ki", "kd"};
 
-    for(int i = 0; i < 3; i++) {
-        int x_val = BUTTON_X + BUTTON_INC_X * i - (i==1 ? 10 : 0);
-        int y_val = BUTTON_Y + BUTTON_H + (BUTTON_INC_Y - BUTTON_H) / 2;
-        int x_name = BUTTON_X + BUTTON_INC_X * i + BUTTON_W / 2 - 10;
-        int y_name = y_val -15;
+//     for(int i = 0; i < 3; i++) {
+//         int x_val = BUTTON_X + BUTTON_INC_X * i - (i==1 ? 10 : 0);
+//         int y_val = BUTTON_Y + BUTTON_H + (BUTTON_INC_Y - BUTTON_H) / 2;
+//         int x_name = BUTTON_X + BUTTON_INC_X * i + BUTTON_W / 2 - 10;
+//         int y_name = y_val -15;
 
-        M5.Display.setCursor(x_val, y_val);
-        M5.Display.printf(i==0 ? "%.3f" : i==1 ? "%.7f" : "%.5f", pid_vals[i]);
+//         M5.Display.setCursor(x_val, y_val);
+//         M5.Display.printf(i==0 ? "%.3f" : i==1 ? "%.7f" : "%.5f", pid_vals[i]);
 
-        M5.Display.setCursor(x_name, y_name);
-        M5.Display.print(pid_names[i]);
-    }
+//         M5.Display.setCursor(x_name, y_name);
+//         M5.Display.print(pid_names[i]);
+//     }
 
     
-}
+// }
 
-// 緊急停止
-void emergency_button_draw(){
-    static bool old_emergency_button = !emergency_button;  
-    if (emergency_button != old_emergency_button) {
-        if (emergency_button == true) {
-            M5.Display.setTextColor(TFT_WHITE, TFT_GREEN);
-            M5.Display.fillCircle(EMERGENCY_BUTTON_X, EMERGENCY_BUTTON_Y, EMERGENCY_CIRCLE, TFT_GREEN);
-            M5.Display.drawCenterString("ON", EMERGENCY_BUTTON_X,EMERGENCY_BUTTON_Y - 5);
-        } else {
-            M5.Display.setTextColor(TFT_WHITE, TFT_RED);
-            M5.Display.fillCircle(EMERGENCY_BUTTON_X, EMERGENCY_BUTTON_Y,EMERGENCY_CIRCLE, TFT_RED);
-            M5.Display.drawCenterString("OFF", EMERGENCY_BUTTON_X,EMERGENCY_BUTTON_Y - 5);
-        }
-        old_emergency_button = emergency_button;  
-        M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
-    }
+// // 緊急停止
+// void emergency_button_draw(){
+//     static bool old_emergency_button = !emergency_button;  
+//     if (emergency_button != old_emergency_button) {
+//         if (emergency_button == true) {
+//             M5.Display.setTextColor(TFT_WHITE, TFT_GREEN);
+//             M5.Display.fillCircle(EMERGENCY_BUTTON_X, EMERGENCY_BUTTON_Y, EMERGENCY_CIRCLE, TFT_GREEN);
+//             M5.Display.drawCenterString("ON", EMERGENCY_BUTTON_X,EMERGENCY_BUTTON_Y - 5);
+//         } else {
+//             M5.Display.setTextColor(TFT_WHITE, TFT_RED);
+//             M5.Display.fillCircle(EMERGENCY_BUTTON_X, EMERGENCY_BUTTON_Y,EMERGENCY_CIRCLE, TFT_RED);
+//             M5.Display.drawCenterString("OFF", EMERGENCY_BUTTON_X,EMERGENCY_BUTTON_Y - 5);
+//         }
+//         old_emergency_button = emergency_button;  
+//         M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+//     }
 
-    M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
-    M5.Display.printf("angle : %.3f", pitch);
-}
+//     M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
+//     M5.Display.printf("angle : %.3f", pitch);
+// }
 
-// 画面タッチ認識
+// // 画面タッチ認識
 // void display_touch() {
 //     if (M5.Touch.getCount() > 0) {
 //         auto t = M5.Touch.getDetail();
@@ -160,203 +160,203 @@ void emergency_button_draw(){
 //     }
 // }
 
-// 画面タッチ認識（長押し対応版）
-void display_touch() {
-    if (M5.Touch.getCount() > 0) {
-        auto t = M5.Touch.getDetail();
+// // // 画面タッチ認識（長押し対応版）
+// // void display_touch() {
+// //     if (M5.Touch.getCount() > 0) {
+// //         auto t = M5.Touch.getDetail();
         
-        // --- PID値の変更セクション（長押しで連続反応） ---
-        for(int i = 0; i < 3; i++){
-            for(int j = 0; j < 2; j++){
-                int x = BUTTON_X + BUTTON_INC_X * i;
-                int y = BUTTON_Y + BUTTON_INC_Y * j;
+// //         // --- PID値の変更セクション（長押しで連続反応） ---
+// //         for(int i = 0; i < 3; i++){
+// //             for(int j = 0; j < 2; j++){
+// //                 int x = BUTTON_X + BUTTON_INC_X * i;
+// //                 int y = BUTTON_Y + BUTTON_INC_Y * j;
                 
-                if(t.x > x && t.x < x + BUTTON_W && t.y > y && t.y < y + BUTTON_H){
-                    float inc = (i==0 ? inc_kp : i==1 ? inc_ki : inc_kd);
+// //                 if(t.x > x && t.x < x + BUTTON_W && t.y > y && t.y < y + BUTTON_H){
+// //                     float inc = (i==0 ? inc_kp : i==1 ? inc_ki : inc_kd);
                     
-                    // 必要に応じて変化速度を調整（例：inc * 0.1）
-                    if(j == 0) { 
-                        if(i==0) kp += inc; else if(i==1) ki += inc; else if(i==2) kd += inc;
-                    } else { 
-                        if(i==0) kp -= inc; else if(i==1) ki -= inc; else if(i==2) kd -= inc; 
-                    }
-                }
-            }
-        }
+// //                     // 必要に応じて変化速度を調整（例：inc * 0.1）
+// //                     if(j == 0) { 
+// //                         if(i==0) kp += inc; else if(i==1) ki += inc; else if(i==2) kd += inc;
+// //                     } else { 
+// //                         if(i==0) kp -= inc; else if(i==1) ki -= inc; else if(i==2) kd -= inc; 
+// //                     }
+// //                 }
+// //             }
+// //         }
 
-        // --- 緊急停止ボタン（誤作動防止のため、ここだけは「1回押し」を維持） ---
-        if(!buttonPressed) { // 前のフレームで押されていなかった場合のみ実行
-            if(t.x > EMERGENCY_BUTTON_X - EMERGENCY_CIRCLE && t.x < EMERGENCY_BUTTON_X + EMERGENCY_CIRCLE &&
-               t.y > EMERGENCY_BUTTON_Y - EMERGENCY_CIRCLE && t.y < EMERGENCY_BUTTON_Y + EMERGENCY_CIRCLE){
-                emergency_button = !emergency_button;
-            }
-        }
-        buttonPressed = true; // 押されている状態を記録
-    } else {
-        buttonPressed = false; // 指が離れたらリセット
-    }
-}
+// //         // --- 緊急停止ボタン（誤作動防止のため、ここだけは「1回押し」を維持） ---
+// //         if(!buttonPressed) { // 前のフレームで押されていなかった場合のみ実行
+// //             if(t.x > EMERGENCY_BUTTON_X - EMERGENCY_CIRCLE && t.x < EMERGENCY_BUTTON_X + EMERGENCY_CIRCLE &&
+// //                t.y > EMERGENCY_BUTTON_Y - EMERGENCY_CIRCLE && t.y < EMERGENCY_BUTTON_Y + EMERGENCY_CIRCLE){
+// //                 emergency_button = !emergency_button;
+// //             }
+// //         }
+// //         buttonPressed = true; // 押されている状態を記録
+// //     } else {
+// //         buttonPressed = false; // 指が離れたらリセット
+// //     }
+// // }
 
-// roller485のセットアップ
-void set_motor_enable(uint8_t address, bool enable) {
-    Wire.beginTransmission(address);
-    Wire.write(REG_ENABLE);
-    Wire.write(enable ? 0x01 : 0x00);
-    Wire.endTransmission();
-}
+// // roller485のセットアップ
+// void set_motor_enable(uint8_t address, bool enable) {
+//     Wire.beginTransmission(address);
+//     Wire.write(REG_ENABLE);
+//     Wire.write(enable ? 0x01 : 0x00);
+//     Wire.endTransmission();
+// }
 
-// roller485の動作モード設定
-void set_control_mode(uint8_t address, uint8_t mode) {
-    Wire.beginTransmission(address);
-    Wire.write(REG_MODE);
-    Wire.write(mode);
-    Wire.endTransmission();
-}
+// // roller485の動作モード設定
+// void set_control_mode(uint8_t address, uint8_t mode) {
+//     Wire.beginTransmission(address);
+//     Wire.write(REG_MODE);
+//     Wire.write(mode);
+//     Wire.endTransmission();
+// }
 
-// roller485の電流制御
-void set_current(int8_t address, int32_t current) {
-    int32_t current_value = current * 100;
+// // roller485の電流制御
+// void set_current(int8_t address, int32_t current) {
+//     int32_t current_value = current * 100;
 
-    Wire.beginTransmission(address);
-    Wire.write(REG_CURRENT);
+//     Wire.beginTransmission(address);
+//     Wire.write(REG_CURRENT);
 
-    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
-    Wire.write(current_value & 0xFF);
-    Wire.write((current_value >> 8) & 0xFF);
-    Wire.write((current_value >> 16) & 0xFF);
-    Wire.write((current_value >> 24) & 0xFF);
+//     // 32ビットの値をリトルエンディアンで4バイトに分割して送信
+//     Wire.write(current_value & 0xFF);
+//     Wire.write((current_value >> 8) & 0xFF);
+//     Wire.write((current_value >> 16) & 0xFF);
+//     Wire.write((current_value >> 24) & 0xFF);
 
-    Wire.endTransmission();
-}
-// 位置制御
-void set_position(int8_t address, int32_t current) {
-    int32_t current_value = current * 100;
+//     Wire.endTransmission();
+// }
+// // 位置制御
+// void set_position(int8_t address, int32_t current) {
+//     int32_t current_value = current * 100;
 
-    Wire.beginTransmission(address);
-    Wire.write(REG_POSITION);
+//     Wire.beginTransmission(address);
+//     Wire.write(REG_POSITION);
 
-    // 32ビットの値をリトルエンディアンで4バイトに分割して送信
-    Wire.write(current_value & 0xFF);
-    Wire.write((current_value >> 8) & 0xFF);
-    Wire.write((current_value >> 16) & 0xFF);
-    Wire.write((current_value >> 24) & 0xFF);
+//     // 32ビットの値をリトルエンディアンで4バイトに分割して送信
+//     Wire.write(current_value & 0xFF);
+//     Wire.write((current_value >> 8) & 0xFF);
+//     Wire.write((current_value >> 16) & 0xFF);
+//     Wire.write((current_value >> 24) & 0xFF);
 
-    Wire.endTransmission();
-}
+//     Wire.endTransmission();
+// }
 
-float speed_read(uint8_t address){
-    Wire.beginTransmission(address);
-    Wire.write(Speed_Readback);
-    Wire.endTransmission();
+// float speed_read(uint8_t address){
+//     Wire.beginTransmission(address);
+//     Wire.write(Speed_Readback);
+//     Wire.endTransmission();
 
-    Wire.requestFrom(address, 4);
+//     Wire.requestFrom(address, 4);
 
-    if(Wire.available() >= 4){
-        byte byte0 = Wire.read();
-        byte byte1 = Wire.read();
-        byte byte2 = Wire.read();
-        byte byte3 = Wire.read();
+//     if(Wire.available() >= 4){
+//         byte byte0 = Wire.read();
+//         byte byte1 = Wire.read();
+//         byte byte2 = Wire.read();
+//         byte byte3 = Wire.read();
 
-        long rpm_value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
-        rpm_value = rpm_value / 100; // データシートより
-        float speed_value = rpm_value * (2.0f * M_PI / 60.0f);
-        return speed_value;
-    }
+//         long rpm_value = (long)byte3 << 24 | (long)byte2 << 16 | (long)byte1 << 8 | (long)byte0;
+//         rpm_value = rpm_value / 100; // データシートより
+//         float speed_value = rpm_value * (2.0f * M_PI / 60.0f);
+//         return speed_value;
+//     }
 
-    return 0;
-}
+//     return 0;
+// }
 
-void setup() {
-    auto cfg = M5.config();
+// void setup() {
+//     auto cfg = M5.config();
 
-    M5.begin(cfg);
-    M5.Imu.begin();
-    Serial.begin(115200);
-    Wire.begin(); 
-    Wire.setClock(400000);
-    filter.begin(25);
+//     M5.begin(cfg);
+//     M5.Imu.begin();
+//     Serial.begin(115200);
+//     Wire.begin(); 
+//     Wire.setClock(400000);
+//     filter.begin(25);
 
-    M5.Display.setTextSize(2);
-    M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
-    M5.Display.fillScreen(TFT_BLACK);
-    // button_draw();
+//     M5.Display.setTextSize(2);
+//     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+//     M5.Display.fillScreen(TFT_BLACK);
+//     // button_draw();
 
-    Serial.println("--- Roller Motor Control Start ---");
+//     Serial.println("--- Roller Motor Control Start ---");
 
-    set_motor_enable(back_motor_id, true);
-    set_motor_enable(front_motor_id, true);
+//     set_motor_enable(back_motor_id, true);
+//     set_motor_enable(front_motor_id, true);
 
-    set_control_mode(back_motor_id, current_mode);
-    set_control_mode(front_motor_id, position_mode);
+//     set_control_mode(back_motor_id, current_mode);
+//     set_control_mode(front_motor_id, position_mode);
 
-    microsPerReading = 1000000 / 25;
-    microsPre = micros();
-    }
+//     microsPerReading = 1000000 / 25;
+//     microsPre = micros();
+//     }
 
-void loop() {
-    M5.update();
+// void loop() {
+//     M5.update();
 
-    button_draw();
-    pid_draw();
-    emergency_button_draw();
-    display_touch();
+//     button_draw();
+//     pid_draw();
+//     emergency_button_draw();
+//     display_touch();
 
-    M5.Imu.getAccel(&ax, &ay, &az);
-    M5.Imu.getGyro(&gx, &gy, &gz);
-    float gx_rad = gx * (M_PI / 180.0f);
-    float gy_rad = gy * (M_PI / 180.0f);
-    float gz_rad = gz * (M_PI / 180.0f);
+//     M5.Imu.getAccel(&ax, &ay, &az);
+//     M5.Imu.getGyro(&gx, &gy, &gz);
+//     float gx_rad = gx * (M_PI / 180.0f);
+//     float gy_rad = gy * (M_PI / 180.0f);
+//     float gz_rad = gz * (M_PI / 180.0f);
 
-    filtered_gx = gx_rad * 0.8 + filtered_gx * 0.2; 
-    filtered_gy = gy_rad * 0.8 + filtered_gy * 0.2; 
-    filtered_gz = gz_rad * 0.8 + filtered_gz * 0.2; 
+//     filtered_gx = gx_rad * 0.8 + filtered_gx * 0.2; 
+//     filtered_gy = gy_rad * 0.8 + filtered_gy * 0.2; 
+//     filtered_gz = gz_rad * 0.8 + filtered_gz * 0.2; 
 
-    // microsNow = micros();
-    // float dt = (microsNow - microsPre) / 1000000.0; 
-    // angle_acc = atan2(ax, az);
-    // pitch = 0.98 * (pitch + filtered_gy * dt) + 0.02 * angle_acc;
-    // float pitch_deg = pitch * 180 / M_PI;
-    // // gx_rad = (roll - pre_roll) / dt;
-    // // pre_roll = roll;
-    // microsPre = microsNow;
+//     // microsNow = micros();
+//     // float dt = (microsNow - microsPre) / 1000000.0; 
+//     // angle_acc = atan2(ax, az);
+//     // pitch = 0.98 * (pitch + filtered_gy * dt) + 0.02 * angle_acc;
+//     // float pitch_deg = pitch * 180 / M_PI;
+//     // // gx_rad = (roll - pre_roll) / dt;
+//     // // pre_roll = roll;
+//     // microsPre = microsNow;
 
-    // Madgwickfilter
-    microsNow = micros();
-    float dt = (float)(microsNow - microsPre) / 1000000.0f;
-    if (dt > 0) {
-        filter.begin(1.0f / dt); 
-    }    
+//     // Madgwickfilter
+//     microsNow = micros();
+//     float dt = (float)(microsNow - microsPre) / 1000000.0f;
+//     if (dt > 0) {
+//         filter.begin(1.0f / dt); 
+//     }    
 
-    filter.updateIMU(gx, gy, gz, ax, ay, az);
-    pitch = filter.getPitch();
-    microsPre = microsNow;
+//     filter.updateIMU(gx, gy, gz, ax, ay, az);
+//     pitch = filter.getRoll();
+//     microsPre = microsNow;
 
-    // 車輪回転速度(rad/s)取得
-    float left_wheel_speed = speed_read(back_motor_id);
-    float right_wheel_speed = speed_read(front_motor_id);
+//     // 車輪回転速度(rad/s)取得
+//     float left_wheel_speed = speed_read(back_motor_id);
+//     float right_wheel_speed = speed_read(front_motor_id);
     
-    float error = target_angle[0] - pitch;
-    integral += error * dt;
-    float diriv = (error - pre_error) / dt;
-    float output = kp * error + ki * integral + kd * diriv;
-    pre_error = error;
+//     float error = target_angle[0] - pitch;
+//     integral += error * dt;
+//     float diriv = (error - pre_error) / dt;
+//     float output = kp * error + ki * integral + kd * diriv;
+//     pre_error = error;
 
-    int current_cmd = (int)(output * current_max);
+//     int current_cmd = (int)(output * current_max);
 
-    if (emergency_button == false){
-        current_cmd = 0.0;
-    }
-    set_current(back_motor_id, current_cmd);
-    set_position(front_motor_id, -5);
+//     if (emergency_button == false){
+//         current_cmd = 0.0;
+//     }
+//     set_current(back_motor_id, -current_cmd);
+//     set_position(front_motor_id, 85);
 
-    // Serial.printf("%f, %f, %f\n",output[0], output[1], roll);
+//     // Serial.printf("%f, %f, %f\n",output[0], output[1], roll);
     
-    // Serial.printf("%f\n", dt);
+//     // Serial.printf("%f\n", dt);
 
-    // Serial.print(">pitch:");
-    // Serial.println(pitch);
-    // Serial.print(">gy_roll:");
-    // Serial.println(gy_rad);
-    // Serial.print(">output:");
-    // Serial.println(current_cmd);
-}
+//     // Serial.print(">pitch:");
+//     // Serial.println(pitch);
+//     // Serial.print(">gy_roll:");
+//     // Serial.println(gy_rad);
+//     // Serial.print(">output:");
+//     // Serial.println(current_cmd);
+// }
