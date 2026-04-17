@@ -56,8 +56,8 @@ float u_min = -30.0;
 float u_max = 30.0;
 
 // ゲイン管理 (初期値を設定しておく)
-float kp_vel = 0.00f;
-float ki_vel = 0.00f;
+float kp_vel = 0.48f;
+float ki_vel = 0.00086f;
 float kd_vel = 0.00f;
 
 // 読み取り値格納用
@@ -120,7 +120,7 @@ void loop() {
 
     if (is_touched && !is_running) {
         is_running = true;
-        target_velocity = 5.0;
+        target_velocity = 15.0;
         Serial.println("Status: RUNNING");
     } 
     else if (!is_touched && is_running) {
@@ -135,8 +135,8 @@ void loop() {
         bool gain_changed = false;
 
         switch (c) {
-            case 'q': kp_vel += 0.001f; break;
-            case 'a': kp_vel -= 0.001f; break;
+            case 'q': kp_vel += 0.01f; break;
+            case 'a': kp_vel -= 0.01f; break;
             case 'w': ki_vel += 0.00001f; break;
             case 's': ki_vel -= 0.00001f; break;
             case 'e': kd_vel += 0.001f; break;
@@ -172,19 +172,19 @@ void loop() {
         float dt = (millis() - pre_time_10) / 1000;
         velocity_type_pid_control(target_velocity, spd, dt);
         pre_time_10 = millis();
-        control_current(MOTOR2_ID, -target_current);
+        control_current(MOTOR2_ID, target_current);
 
-        // Serial.print(">vel:");
-        // Serial.println(spd);
-        // Serial.print(">trq:");
-        // Serial.println(trq);
+        Serial.print(">vel:");
+        Serial.println(spd);
+        Serial.print(">trq:");
+        Serial.println(trq);
         // Serial.print(">kp:");
         // Serial.println(kp_vel);
         // Serial.print(">ki:");
         // Serial.println(ki_vel);
         // Serial.print(">kd:");
         // Serial.println(kd_vel);
-        Serial.printf("%f,%f,%f,%f,%f,%f,%f\n", kp_vel,ki_vel,kd_vel,target_velocity,target_current,spd,trq);
+        // Serial.printf("%f,%f,%f,%f,%f,%f,%f\n", kp_vel,ki_vel,kd_vel,target_velocity,target_current,spd,trq);
     }
 
     // --- 4. 100ms周期でのデータ要求とシリアル出力 ---
@@ -267,7 +267,7 @@ void velocity_type_pid_control(float target, float actual, float dt) {
     float prop = error - pre_error;
     float deriv = prop - pre_prop;
     integral += error;
-    float du = kp_vel * error + ki_vel * integral  + kd_vel * deriv;
+    float du = kp_vel * prop + ki_vel * error + kd_vel * deriv;
     pre_error = error;
     pre_prop = prop;
     output += du;
