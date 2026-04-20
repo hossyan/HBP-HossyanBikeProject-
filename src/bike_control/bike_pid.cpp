@@ -49,17 +49,17 @@
 // #define position_mode   0x02      //動作モード：位置制御
 // #define current_mode    0x03      //動作モード：電流制御
 
-// float inc_kp = 0.005;
-// float inc_ki = 0.0000001; 
-// float inc_kd = 0.0001;
+// float inc_kp = 0.001;
+// float inc_ki = 0.01; 
+// float inc_kd = 0.1;
 
-// float kp = 0.250;
-// float ki = 0.000010;
-// float kd = 0.00430;
+// float kp = 0.280;
+// float ki = 0.001;
+// float kd = 0.001;
 
 // float pre_time = 0.0;
 // int current_max = 1200;
-// float target_angle[1] = {0.0};
+// float target[3] = {-0.5, 0.0, 0.0};
 // float integral = 0.0;
 // float pre_error = 0.0;
 
@@ -108,8 +108,6 @@
 //         M5.Display.setCursor(x_name, y_name);
 //         M5.Display.print(pid_names[i]);
 //     }
-
-    
 // }
 
 // // 緊急停止
@@ -130,7 +128,7 @@
 //     }
 
 //     M5.Display.setCursor(OUTPUT_X, OUTPUT_Y);
-//     M5.Display.printf("angle : %.3f", pitch);
+//     M5.Display.printf("angle : %.3f", roll);
 // }
 
 // // 画面タッチ認識
@@ -328,18 +326,40 @@
 //     }    
 
 //     filter.updateIMU(gx, gy, gz, ax, ay, az);
-//     pitch = filter.getRoll();
+//     roll = filter.getRoll();
 //     microsPre = microsNow;
+
+//     // if (Serial.available()) {
+//     //     char c = Serial.read();
+//     //     bool gain_changed = false;
+
+//     //     switch (c) {
+//     //         case 'q': kp += inc_kp; break;
+//     //         case 'a': kp -= inc_kp; break;
+//     //         case 'w': ki += inc_ki; break;
+//     //         case 's': ki -= inc_ki; break;
+//     //         case 'e': kd += inc_kd; break;
+//     //         case 'd': kd -= inc_kd; break;
+//     //     }
+
+//     //     // 下限ガード
+//     //     if (kp < 0.0f) kp = 0.0f;
+//     //     if (ki < 0.0f) ki = 0.0f;
+//     //     if (kd < 0.0f) kd = 0.0f;
+//     // }
 
 //     // 車輪回転速度(rad/s)取得
 //     float left_wheel_speed = speed_read(back_motor_id);
 //     float right_wheel_speed = speed_read(front_motor_id);
     
-//     float error = target_angle[0] - pitch;
-//     integral += error * dt;
-//     float diriv = (error - pre_error) / dt;
-//     float output = kp * error + ki * integral + kd * diriv;
-//     pre_error = error;
+//     float error_roll = target[0] - roll;
+//     float error_roll_vel = target[1] - (filtered_gx * M_PI / 180);
+//     float error_wheel = target[2] - left_wheel_speed;
+//     // integral += error * dt;
+//     // float diriv = (error - pre_error) / dt;
+//     float output = kp * error_roll - ki * filtered_gx - kd * error_wheel;
+//     output = constrain(output, -1.0f, 1.0f);
+//     // pre_error = error;
 
 //     int current_cmd = (int)(output * current_max);
 
@@ -347,9 +367,9 @@
 //         current_cmd = 0.0;
 //     }
 //     set_current(back_motor_id, -current_cmd);
-//     set_position(front_motor_id, 85);
+//     set_position(front_motor_id, 80);
 
-//     // Serial.printf("%f, %f, %f\n",output[0], output[1], roll);
+//     Serial.printf("%f, %f, %f, %f\n",roll, filtered_gx, left_wheel_speed, output);
     
 //     // Serial.printf("%f\n", dt);
 
