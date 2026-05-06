@@ -1,0 +1,77 @@
+<mujoco model="HBP_V3_mjcf">
+  <compiler angle="radian" meshdir="assets" autolimits="true" />
+  <option timestep="0.001" iterations="30" cone="elliptic" impratio="100" />
+
+  <default>
+    <position inheritrange="1" timeconst="0.001"/>
+    <default class="collision">
+      <geom group="0"/>
+    </default>
+    <default class="visual">
+      <geom contype="0" conaffinity="0" group="1"/>
+    </default>
+  </default>
+
+  <asset>
+    <mesh name="body" file="body.stl" />
+    <mesh name="back_tire" file="back_tire.stl" />
+    <mesh name="fork" file="fork.stl" />
+    <mesh name="front_tire" file="front_tire.stl" />
+  </asset>
+
+  <worldbody>
+    <body name="body" pos=".0 .0 .0">
+      <freejoint />
+      <inertial pos="-251.337e-3 -1.123e-3 310.924e-3" mass="2.3123167" diaginertia="0.069594 0.124884 0.083959" />
+      <geom class="visual" type="mesh" mesh="body"/>
+      <geom type="mesh" mesh="body" group="0" />
+      <site name="imu_site" pos="-200.0e-3 0 424.357e-3" size="0.01" rgba="1 0 0 1"/>
+
+      <!-- back_tire -->
+      <body name="back_tire" pos=".0 .0 .15">
+        <joint name="back_tire_pitch" type="hinge" pos="0 0 0" axis="0 -1 0" limited="false" frictionloss="0.161745" damping="1.0e-6" armature="0.0105"/>
+        <inertial pos="-0 -4.273e-3 -0" mass="0.923928" diaginertia="6.185e-3 1.204e-2 6.185e-3" />
+        <!-- <geom class="visual" type="mesh" mesh="back_tire"/> -->
+        <geom type="mesh" mesh="back_tire" group="0"/>
+      </body>
+
+      <!-- fork -->
+      <body name="fork" pos="-492.314e-3 0.0 344.92e-3" quat="0.9785 0 0.20625 0">
+        <joint name="fork_yaw" type="hinge" pos="0 0 0" axis="0 0 -1" limited="false" frictionloss="0.161745" damping=".0"/>
+        <inertial pos="0 0 -40.874e-3" mass="0.482246" diaginertia="5.876e-3 5.468e-3 5.957e-4" />
+        <geom class="visual" type="mesh" mesh="fork" group="0"/>
+
+        <!-- front_tire -->
+        <body name="front_tire" pos=".0 .0 -212.269e-3">
+          <joint name="front_tire_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false"  damping="1.0e-6"/>
+          <inertial pos=".0 .0 .0" mass="0.749780" diaginertia="5.632e-3 1.110e-2 5.632e-3" />
+          <!-- <geom class="visual" type="mesh" mesh="front_tire"/> -->
+          <geom type="mesh" mesh="front_tire" group="0" />
+        </body>
+      </body> 
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- backtire -->
+    <motor name="back_tire_motor" joint="back_tire_pitch" 
+          ctrllimited="true" ctrlrange="-12.0 12.0" gear="1" />
+    <!-- fork -->
+    <position name="fork_actuator" joint="fork_yaw" gear="1" 
+          kp="100" kv="10" 
+          inheritrange="0" 
+          ctrlrange="-1.570796 1.570796" forcerange="-12.0 12.0" 
+          ctrllimited="true" forcelimited="true"/>
+  </actuator>
+
+  <contact>
+    <exclude body1="body" body2="back_tire" />
+    <exclude body1="body" body2="fork" />
+    <exclude body1="fork" body2="front_tire" />
+  </contact>
+
+  <sensor>
+    <accelerometer name="body_accel" site="imu_site" />
+    <gyro name="body_gyro" site="imu_site" />
+  </sensor>
+</mujoco>

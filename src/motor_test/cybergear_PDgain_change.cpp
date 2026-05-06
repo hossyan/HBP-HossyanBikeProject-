@@ -120,7 +120,7 @@
 
 //     if (is_touched && !is_running) {
 //         is_running = true;
-//         target_velocity = 15.0;
+//         target_velocity = 4;
 //         Serial.println("Status: RUNNING");
 //     } 
 //     else if (!is_touched && is_running) {
@@ -174,10 +174,10 @@
 //         pre_time_10 = millis();
 //         control_current(MOTOR2_ID, target_current);
 
-//         Serial.print(">vel:");
-//         Serial.println(spd);
-//         Serial.print(">trq:");
-//         Serial.println(trq);
+//         // Serial.print(">vel:");
+//         // Serial.println(spd);
+//         // Serial.print(">trq:");
+//         // Serial.println(trq);
 //         // Serial.print(">kp:");
 //         // Serial.println(kp_vel);
 //         // Serial.print(">ki:");
@@ -185,6 +185,7 @@
 //         // Serial.print(">kd:");
 //         // Serial.println(kd_vel);
 //         // Serial.printf("%f,%f,%f,%f,%f,%f,%f\n", kp_vel,ki_vel,kd_vel,target_velocity,target_current,spd,trq);
+//         Serial.printf("%f,%f\n", spd,target_current);
 //     }
 
 //     // --- 4. 100ms周期でのデータ要求とシリアル出力 ---
