@@ -48,8 +48,7 @@ from mjlab.actuator import XmlActuatorCfg
 # ============================================================
 # 0. XML パス
 # ============================================================
-# このファイルと同じディレクトリに cartpole.xml を置くこと
-_CARTPOLE_XML = Path(__file__).parent / "cartpole.xml"
+_BIKE_XML = Path(__file__).parent / "bike_scene.xml"
 
 
 # ============================================================
@@ -58,11 +57,10 @@ _CARTPOLE_XML = Path(__file__).parent / "cartpole.xml"
 
 def _get_spec() -> mujoco.MjSpec:
     """MuJoCo モデルスペックを XML から読み込む。"""
-    return mujoco.MjSpec.from_file(str(_CARTPOLE_XML))
+    return mujoco.MjSpec.from_file(str(_BIKE_XML))
 
 
-# XML に書かれた motor ("slide") をそのまま使うアクチュエータ設定
-_CARTPOLE_ARTICULATION = EntityArticulationInfoCfg(
+_BIKE_ARTICULATION = EntityArticulationInfoCfg(
     actuators=(
         XmlActuatorCfg(target_names_expr=("slider",)),
     ),
@@ -81,11 +79,11 @@ _SWINGUP_INIT = EntityCfg.InitialStateCfg(
 )
 
 
-def _get_cartpole_entity_cfg(swing_up: bool = True) -> EntityCfg:
+def _get_bike_entity_cfg(swing_up: bool = True) -> EntityCfg:
     """Entity 設定を返す。swing_up=True でスウィングアップ課題になる。"""
     return EntityCfg(
         spec_fn=_get_spec,
-        articulation=_CARTPOLE_ARTICULATION,
+        articulation=_BIKE_ARTICULATION,
         init_state=_SWINGUP_INIT if swing_up else _BALANCE_INIT,
     )
 
@@ -264,7 +262,7 @@ def cartpole_env_cfg(
     return ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
-            entities={"cartpole": _get_cartpole_entity_cfg(swing_up=swing_up)},
+            entities={"bike": _get_bike_entity_cfg(swing_up=swing_up)},
             num_envs=num_envs,
             env_spacing=4.0,    # 並列環境の配置間隔 [m]
         ),

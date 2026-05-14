@@ -1,4 +1,4 @@
-<mujoco model="HBP_V3_mjcf">
+<mujoco model="bike_V3_mjcf">
   <compiler angle="radian" meshdir="assets" autolimits="true" />
   <option timestep="0.001" iterations="30" cone="elliptic" impratio="100" />
 
