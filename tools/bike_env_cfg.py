@@ -59,59 +59,100 @@ def _get_spec() -> mujoco.MjSpec:
     """MuJoCo モデルスペックを XML から読み込む。"""
     return mujoco.MjSpec.from_file(str(_BIKE_XML))
 
-
+# 試用アクチュエータ定義
 _BIKE_ARTICULATION = EntityArticulationInfoCfg(
     actuators=(
-        XmlActuatorCfg(target_names_expr=("slider",)),
+        XmlActuatorCfg(target_names_expr=("back_tire_pitch",)),
+        XmlActuatorCfg(target_names_expr=("fork_yaw",)),
     ),
 )
 
-# ── 初期状態: バランス課題（ポールが上を向いてスタート）
-_BALANCE_INIT = EntityCfg.InitialStateCfg(
-    joint_pos={"slider": 0.0, "hinge_1": 0.0},   # ポール直立
+# 初期状態
+_BIKE_INIT = EntityCfg.InitialStateCfg(
+    joint_pos={
+        "back_tire_pitch": 0.0, 
+        "fork_yaw": 0.0},  
     joint_vel={".*": 0.0},
 )
 
-# ── 初期状態: スウィングアップ課題（ポールが下を向いてスタート）
-_SWINGUP_INIT = EntityCfg.InitialStateCfg(
-    joint_pos={"slider": 0.0, "hinge_1": math.pi},  # ポール倒れた状態
-    joint_vel={".*": 0.0},
-)
-
-
-def _get_bike_entity_cfg(swing_up: bool = True) -> EntityCfg:
-    """Entity 設定を返す。swing_up=True でスウィングアップ課題になる。"""
+# Entity config
+def _get_bike_entity_cfg() -> EntityCfg:
     return EntityCfg(
         spec_fn=_get_spec,
         articulation=_BIKE_ARTICULATION,
-        init_state=_SWINGUP_INIT if swing_up else _BALANCE_INIT,
+        init_state=_BIKE_INIT,
     )
 
 
 # ============================================================
 # 2. カスタム観測関数
 # ============================================================
+class ComplementaryRollFilter:
+    def __init__(
+        self,
+        accel_sensor_name: str = "bike/body_accel",
+        gyro_sensor_name: str = "bike/body_gyro",
+        alpha: float = 0.98,
+        dt: float = 0.05,
+    ):
+        self.accel_sensor_name = accel_sensor_name
+        self.gyro_sensor_name = gyro_sensor_name
+        self.alpha = alpha
+        self.dt = dt
+        self.roll = None
+        self.roll_rate_value = None
 
-def pole_angle_cos_sin(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    """
-    ポール角度を cos と sin で返す（形状: [num_envs, 2]）。
+    def update(self, env) -> torch.Tensor:
+        accel = env.scene[self.accel_sensor_name].data  # [N, 3]
+        gyro = env.scene[self.gyro_sensor_name].data    # [N, 3]
 
-    生角度ではなく cos/sin を使う理由:
-      MuJoCo の unlimited hinge は角度が累積されるため、
-      同じ姿勢でも値が異なる場合がある。
-      cos/sin にすると何回転していても同じ姿勢は同じ値になる。
-    """
-    from mjlab.entity import Entity
-    asset: Entity = env.scene[asset_cfg.name]
-    angle = asset.data.joint_pos[:, asset_cfg.joint_ids]   # [N, 1]
-    return torch.cat([torch.cos(angle), torch.sin(angle)], dim=-1)  # [N, 2]
+        ay = accel[:, 1]
+        az = accel[:, 2]
+        gx = gyro[:, 0]  # x軸回り roll rate [rad/s]
+
+        roll_acc = torch.atan2(ay, az)
+
+        if self.roll is None or self.roll.shape[0] != env.num_envs:
+            self.roll = roll_acc.clone()
+
+        if hasattr(env, "episode_length_buf"):
+            reset_mask = env.episode_length_buf == 0
+            self.roll[reset_mask] = roll_acc[reset_mask]
+
+        self.roll = self.alpha * (self.roll + gx * self.dt) + (1.0 - self.alpha) * roll_acc
+        self.roll_rate_value = gx
+
+        return self.roll.unsqueeze(-1)
+
+    def roll_rate(self, env) -> torch.Tensor:
+        gyro = env.scene[self.gyro_sensor_name].data
+        self.roll_rate_value = gyro[:, 0]
+        return self.roll_rate_value.unsqueeze(-1)
+
+    def get_roll(self, env) -> torch.Tensor:
+        if self.roll is None:
+            accel = env.scene[self.accel_sensor_name].data
+            self.roll = torch.atan2(accel[:, 1], accel[:, 2])
+        return self.roll
+
+def body_roll(env, roll_filter: ComplementaryRollFilter) -> torch.Tensor:
+    return roll_filter.update(env)
+
+
+def body_roll_vel(env, roll_filter: ComplementaryRollFilter) -> torch.Tensor:
+    return roll_filter.roll_rate(env)
+
+
+def roll_exceeded(env, roll_filter: ComplementaryRollFilter, limit_rad: float) -> torch.Tensor:
+    roll = roll_filter.get_roll(env)
+    return torch.abs(roll) > limit_rad
 
 
 # ============================================================
 # 3. カスタム報酬関数
 # ============================================================
 
-def cartpole_smooth_reward(
+def bike_reward(
     env,
     cart_cfg: SceneEntityCfg,
     hinge_cfg: SceneEntityCfg,
@@ -163,44 +204,31 @@ def _tolerance(x: torch.Tensor, margin: float) -> torch.Tensor:
 # 4. 環境設定を組み立てる関数
 # ============================================================
 
-def cartpole_env_cfg(
-    swing_up: bool = True,
-    num_envs: int = 1,
-) -> ManagerBasedRlEnvCfg:
-    """
-    Cartpole 環境の完全な設定を返す。
+def bike_env_cfg(num_envs: int = 1,) -> ManagerBasedRlEnvCfg:
+    # 特定のEnityの関節を取得する
+    back_tire_cfg  = SceneEntityCfg("bike", joint_names=("back_tire_pitch",))
+    fork_cfg = SceneEntityCfg("bike", joint_names=("fork_yaw",))
 
-    Parameters
-    ----------
-    swing_up : bool
-        True → スウィングアップ課題 (hinge_1 = π からスタート)
-        False → バランス課題      (hinge_1 = 0 からスタート)
-    num_envs : int
-        並列環境数（GPU学習時は 512 〜 4096 程度を指定する）
-    """
-
-    # ── SceneEntityCfg: 観測・報酬で「どの関節を見るか」を指定 ──────
-    cart_cfg  = SceneEntityCfg("cartpole", joint_names=("slider",))
-    hinge_cfg = SceneEntityCfg("cartpole", joint_names=("hinge_1",))
+    roll_filter = ComplementaryRollFilter(
+        accel_sensor_name="body_accel",
+        gyro_sensor_name="body_gyro",
+        alpha=0.98,
+        dt=0.01 * 5,
+    )
 
     # ── Observations ────────────────────────────────────────────────
-    # 観測ベクトル: [cart_pos(1), cos(θ)(1), sin(θ)(1), cart_vel(1), pole_vel(1)] = 5次元
     actor_terms = {
-        "cart_pos": ObservationTermCfg(
-            func=joint_pos_rel,
-            params={"asset_cfg": cart_cfg},
-        ),
-        "pole_angle": ObservationTermCfg(
-            func=pole_angle_cos_sin,
-            params={"asset_cfg": hinge_cfg},
-        ),
-        "cart_vel": ObservationTermCfg(
+        "back_tire_vel": ObservationTermCfg(
             func=joint_vel_rel,
-            params={"asset_cfg": cart_cfg},
+            params={"asset_cfg": back_tire_cfg},
         ),
-        "pole_vel": ObservationTermCfg(
-            func=joint_vel_rel,
-            params={"asset_cfg": hinge_cfg},
+        "body_roll": ObservationTermCfg(
+            func=body_roll,
+            params={"roll_filter": roll_filter},
+        ),
+        "body_roll_vel": ObservationTermCfg(
+            func=body_roll_vel,
+            params={"roll_filter": roll_filter},
         ),
     }
     observations = {
@@ -209,12 +237,10 @@ def cartpole_env_cfg(
     }
 
     # ── Actions ─────────────────────────────────────────────────────
-    # ポリシー出力 → スライダー (cart) に力を加える
-    # XmlActuator が ctrl を [-1, 1] にクランプし gear=10 をかけて MuJoCo に渡す
     actions = {
         "effort": JointEffortActionCfg(
-            entity_name="cartpole",
-            actuator_names=("slider",),
+            entity_name="bike",
+            actuator_names=("back_tire_motor", "fork_motor"),
             scale=1.0,
         ),
     }
@@ -222,7 +248,7 @@ def cartpole_env_cfg(
     # ── Rewards ─────────────────────────────────────────────────────
     rewards = {
         "smooth_reward": RewardTermCfg(
-            func=cartpole_smooth_reward,
+            func=bike_reward,
             weight=1.0,
             params={"cart_cfg": cart_cfg, "hinge_cfg": hinge_cfg},
         ),
@@ -231,7 +257,17 @@ def cartpole_env_cfg(
     # ── Terminations ────────────────────────────────────────────────
     # タイムアウトのみ（time_out=True で「打ち切り」扱いになり価値関数をブートストラップ）
     terminations = {
-        "time_out": TerminationTermCfg(func=time_out, time_out=True),
+        "roll_exceeded": TerminationTermCfg(
+            func=roll_exceeded,
+            params={
+                "roll_filter": roll_filter,
+                "limit_rad": math.radians(45.0),
+            },
+        ),
+        "time_out": TerminationTermCfg(
+            func=time_out,
+            time_out=True,
+        ),
     }
 
     # ── Events (エピソードリセット時のランダム化) ────────────────────
@@ -250,7 +286,6 @@ def cartpole_env_cfg(
             func=reset_joints_by_offset,
             mode="reset",
             params={
-                # スウィングアップ: π ± 0.1 rad、バランス: 0 ± 0.1 rad
                 "position_range": (-0.1, 0.1),
                 "velocity_range": (-0.01, 0.01),
                 "asset_cfg": SceneEntityCfg("cartpole", joint_names=("hinge_1",)),
@@ -262,7 +297,7 @@ def cartpole_env_cfg(
     return ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
-            entities={"bike": _get_bike_entity_cfg(swing_up=swing_up)},
+            entities={"bike": _get_bike_entity_cfg()},
             num_envs=num_envs,
             env_spacing=4.0,    # 並列環境の配置間隔 [m]
         ),
@@ -273,8 +308,7 @@ def cartpole_env_cfg(
         terminations=terminations,
         sim=SimulationCfg(
             mujoco=MujocoCfg(
-                timestep=0.01,
-                disableflags=("contact",),  # Cartpole は接触不要なので無効化
+                timestep=0.001,
             ),
         ),
         decimation=5,           # 物理 5 ステップに 1 回ポリシーを呼ぶ (20 Hz 制御)

@@ -57,7 +57,7 @@
     <motor name="back_tire_motor" joint="back_tire_pitch" 
           ctrllimited="true" ctrlrange="-12.0 12.0" gear="1" />
     <!-- fork -->
-    <position name="fork_actuator" joint="fork_yaw" gear="1" 
+    <position name="fork_motor" joint="fork_yaw" gear="1" 
           kp="100" kv="10" 
           inheritrange="0" 
           ctrlrange="-1.570796 1.570796" forcerange="-12.0 12.0" 

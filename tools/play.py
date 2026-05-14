@@ -188,7 +188,7 @@ def run_play(args):
 
     # ── 1. 環境を作る ───────────────────────────────────────────────
     # play 時は 1 環境・エピソード長無制限
-    env_cfg = cartpole_env_cfg(swing_up=swing_up, num_envs=1)
+    env_cfg = cartpole_env_cfg(swing_up=swing_up, num_envs=16)
     env_cfg.episode_length_s = 9999.0
 
     env = ManagerBasedRlEnv(cfg=env_cfg, device=device)
