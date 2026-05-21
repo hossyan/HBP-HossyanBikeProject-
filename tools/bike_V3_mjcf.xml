@@ -1,6 +1,7 @@
 <mujoco model="bike_V3_mjcf">
   <compiler angle="radian" meshdir="assets" autolimits="true" />
-  <option timestep="0.001" iterations="30" cone="elliptic" impratio="100" />
+  <option timestep="0.001" iterations="30" cone="elliptic" impratio="100"/>
+  <size njmax="200" />
 
   <default>
     <position inheritrange="1" timeconst="0.001"/>

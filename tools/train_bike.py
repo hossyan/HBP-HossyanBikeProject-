@@ -1,40 +1,14 @@
-"""
-train.py
-=========
-Cartpole 環境を mjlab + RSL-RL (PPO) で学習するスクリプト。
-
-使い方:
-    # バランス課題（デフォルト）
-    python train.py
-
-    # スウィングアップ課題
-    python train.py --task swingup
-
-    # 並列環境数を変える
-    python train.py --num-envs 512
-
-    # GPU ID を指定する（デフォルト: 0）
-    python train.py --gpu-id 0
-
-    # 学習イテレーション数を変える
-    python train.py --max-iters 1000
-
-注意:
-    mjlab は NVIDIA GPU が必要（学習時）。
-    CPU のみの場合は `--gpu-id -1` を指定してください（速度は遅くなります）。
-"""
-
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 
 # ── mjlab ─────────────────────────────────────────────────────────────
-from mjlab.tasks.registry import register_mjlab_task
+# from mjlab.tasks.registry import register_mjlab_task  # uv run train を使う場合はコメントアウトを解除
 from mjlab.rl import RslRlOnPolicyRunnerCfg, RslRlModelCfg, RslRlPpoAlgorithmCfg
 
 # 今回作った環境設定をインポート
-from cartpole_env_cfg import cartpole_env_cfg
+from bike_env_cfg import bike_env_cfg
 
 
 
@@ -42,20 +16,7 @@ from cartpole_env_cfg import cartpole_env_cfg
 # PPO ハイパーパラメータ設定
 # ============================================================
 
-def cartpole_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
-    """
-    Cartpole 用の RSL-RL PPO 設定。
-
-    ネットワーク:
-        Actor / Critic ともに 2 層 MLP (64 ユニット, ELU 活性化)
-        Cartpole は状態空間が小さいので軽量なネットワークで十分。
-
-    PPO ハイパーパラメータ:
-        学習率: 1e-3  ← Adam オプティマイザ
-        ミニバッチ数: 4
-        エポック数: 5  ← 1 ロールアウトを 5 回学習
-        クリップ比率: 0.2  ← 標準的な PPO 設定
-    """
+def bike_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     return RslRlOnPolicyRunnerCfg(
         # ── ネットワーク構造 ─────────────────────────────────────────
         # Actor と Critic は別々の RslRlModelCfg で設定する（旧 RslRlPpoActorCriticCfg は廃止）
@@ -92,11 +53,11 @@ def cartpole_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         ),
         # ── トレーニングループ ────────────────────────────────────────
         num_steps_per_env=24,            # 1 イテレーションで各環境から収集するステップ数
-        max_iterations=1000,              # 総イテレーション数
+        max_iterations=1800,              # 総イテレーション数
         # ── ロギング・保存 ─────────────────────────────────────────
         save_interval=200,               # 100 イテレーションごとにモデルを保存
-        experiment_name="cartpole",
-        run_name="test",                     # 空にすると日時から自動生成
+        experiment_name="bike",
+        run_name="log4",                     # 空にすると日時から自動生成
         logger="tensorboard",            # "tensorboard" / "wandb"
     )
 
@@ -106,7 +67,7 @@ def cartpole_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
 # ============================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Cartpole mjlab training")
+    parser = argparse.ArgumentParser(description="Bike mjlab training")
     parser.add_argument(
         "--task",
         choices=["balance", "swingup"],
@@ -128,7 +89,7 @@ def main():
     parser.add_argument(
         "--max-iters",
         type=int,
-        default=1000,
+        default=1800,
         help="学習の総イテレーション数",
     )
     args = parser.parse_args()
@@ -142,24 +103,24 @@ def main():
     print(f"[train] Max iters : {args.max_iters}")
 
     # ── 1. 環境・PPO 設定を作る ─────────────────────────────────────
-    env_cfg = cartpole_env_cfg(swing_up=swing_up, num_envs=args.num_envs)
-    rl_cfg  = cartpole_ppo_runner_cfg()
+    env_cfg = bike_env_cfg(num_envs=args.num_envs)
+    rl_cfg  = bike_ppo_runner_cfg()
 
     # max_iterations を CLI 引数で上書き
     rl_cfg.max_iterations = args.max_iters
 
     # play 用設定（ランダム化なし・エピソード長無制限）
-    play_cfg = cartpole_env_cfg(swing_up=swing_up, num_envs=1)
+    play_cfg = bike_env_cfg(num_envs=1)
     play_cfg.episode_length_s = float("inf")
 
     # ── 2. タスクを登録する ──────────────────────────────────────────
-    # register_mjlab_task は タスク名 → (env_cfg, rl_cfg) のペアを登録する
-    register_mjlab_task(
-        task_id=task_id,
-        env_cfg=env_cfg,
-        play_env_cfg=play_cfg,
-        rl_cfg=rl_cfg,
-    )
+    # uv run train コマンドを使う場合はコメントアウトを解除して task_id を指定する
+    # register_mjlab_task(
+    #     task_id=task_id,
+    #     env_cfg=env_cfg,
+    #     play_env_cfg=play_cfg,
+    #     rl_cfg=rl_cfg,
+    # )
 
     # ── 3. 学習を実行する ────────────────────────────────────────────
     import torch
