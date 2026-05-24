@@ -29,7 +29,7 @@ def load_policy(checkpoint_path: str, obs_dim: int, act_dim: int, device: str):
         obs_groups=obs_groups,
         obs_set="actor",
         output_dim=act_dim,
-        hidden_dims=(64, 64),
+        hidden_dims=(128, 64),
         activation="elu",
         distribution_cfg={
             "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
@@ -228,7 +228,7 @@ def main():
     parser.add_argument(
         "--num-envs",
         type=int,
-        default=512,
+        default=1,
         help="Number of environments to create for playback.",
     )
     parser.add_argument(
