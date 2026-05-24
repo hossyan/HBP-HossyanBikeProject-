@@ -1,5 +1,5 @@
 <mujoco model="bike_V3_mjcf">
-  <compiler angle="radian" meshdir="assets" autolimits="true" />
+  <compiler angle="radian" meshdir="meshes" autolimits="true" />
   <option timestep="0.001" iterations="30" cone="elliptic" impratio="100"/>
   <size njmax="200" />
 
