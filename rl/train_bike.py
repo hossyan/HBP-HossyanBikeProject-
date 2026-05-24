@@ -8,6 +8,7 @@ from datetime import datetime
 from mjlab.rl import RslRlOnPolicyRunnerCfg, RslRlModelCfg, RslRlPpoAlgorithmCfg
 
 # 今回作った環境設定をインポート
+
 from bike_env_cfg import bike_env_cfg
 
 
@@ -57,7 +58,7 @@ def bike_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         # ── ロギング・保存 ─────────────────────────────────────────
         save_interval=200,               # 100 イテレーションごとにモデルを保存
         experiment_name="bike",
-        run_name="log4",                     # 空にすると日時から自動生成
+        run_name="log5",                     # 空にすると日時から自動生成
         logger="tensorboard",            # "tensorboard" / "wandb"
     )
 

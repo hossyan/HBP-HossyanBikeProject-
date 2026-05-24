@@ -1,0 +1,701 @@
+--- git commit ---
+086c38e2dd6a256f564e93fe98b8c5c1154307b8
+
+
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   tools/__pycache__/bike_env_cfg.cpython-313.pyc
+	modified:   tools/bike_env_cfg.py
+	deleted:    tools/train.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	tools/bike.py
+	tools/train_bike.py
+	tools/train_cartpole.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/tools/__pycache__/bike_env_cfg.cpython-313.pyc b/tools/__pycache__/bike_env_cfg.cpython-313.pyc
+index 294cac7..2f22ae4 100644
+Binary files a/tools/__pycache__/bike_env_cfg.cpython-313.pyc and b/tools/__pycache__/bike_env_cfg.cpython-313.pyc differ
+diff --git a/tools/bike_env_cfg.py b/tools/bike_env_cfg.py
+index 4682afd..9fb0eb8 100644
+--- a/tools/bike_env_cfg.py
++++ b/tools/bike_env_cfg.py
+@@ -1,17 +1,7 @@
+ """
+-cartpole_env_cfg.py
+-====================
+-mjlab を使った倒立振子 (Cartpole) 環境の設定ファイル。
+-
+-ここでは「Manager-Based RL 環境」を構成する 6 つのピースを定義する。
+-  1. Entity        … 何をシミュレートするか
+-  2. Observations  … エージェントが何を見るか
+-  3. Actions       … エージェントが何をするか
+-  4. Rewards       … 何が報酬になるか
+-  5. Terminations  … いつエピソードを終えるか
+-  6. Events        … リセット時に何をするか
+-
+-添付された cartpole.xml をそのまま使う。
++bike_env_cfg.py
++================
++mjlab を使ったバイク倒立制御の環境設定ファイル。
+ """
+ 
+ import math
+@@ -20,7 +10,6 @@ from pathlib import Path
+ import mujoco
+ import torch
+ 
+-# ── mjlab コア ──────────────────────────────────────────────────────────
+ from mjlab.envs import ManagerBasedRlEnvCfg
+ from mjlab.envs.mdp import (
+     joint_pos_rel,
+@@ -28,6 +17,7 @@ from mjlab.envs.mdp import (
+     reset_joints_by_offset,
+     time_out,
+     JointEffortActionCfg,
++    # JointPositionActionCfg,  # fork を動かす場合はコメントアウトを解除
+ )
+ from mjlab.managers import (
+     EventTermCfg,
+@@ -40,8 +30,6 @@ from mjlab.managers import (
+ from mjlab.scene import SceneCfg
+ from mjlab.terrains import TerrainEntityCfg
+ from mjlab.sim import MujocoCfg, SimulationCfg
+-
+-# ── Entity 関連 ─────────────────────────────────────────────────────────
+ from mjlab.entity import EntityCfg, EntityArticulationInfoCfg
+ from mjlab.actuator import XmlActuatorCfg
+ 
+@@ -54,12 +42,10 @@ _BIKE_XML = Path(__file__).parent / "bike_scene.xml"
+ # ============================================================
+ # 1. Entity 設定
+ # ============================================================
+-
+ def _get_spec() -> mujoco.MjSpec:
+-    """MuJoCo モデルスペックを XML から読み込む。"""
+     return mujoco.MjSpec.from_file(str(_BIKE_XML))
+ 
+-# 試用アクチュエータ定義
++# [FIX1] XmlActuatorCfg には joint名を指定する（確認済み）
+ _BIKE_ARTICULATION = EntityArticulationInfoCfg(
+     actuators=(
+         XmlActuatorCfg(target_names_expr=("back_tire_pitch",)),
+@@ -67,15 +53,14 @@ _BIKE_ARTICULATION = EntityArticulationInfoCfg(
+     ),
+ )
+ 
+-# 初期状態
+ _BIKE_INIT = EntityCfg.InitialStateCfg(
+     joint_pos={
+-        "back_tire_pitch": 0.0, 
+-        "fork_yaw": 0.0},  
++        "back_tire_pitch": 0.0,
++        "fork_yaw": math.radians(60),   # 60deg = π/3
++    },
+     joint_vel={".*": 0.0},
+ )
+ 
+-# Entity config
+ def _get_bike_entity_cfg() -> EntityCfg:
+     return EntityCfg(
+         spec_fn=_get_spec,
+@@ -85,136 +70,143 @@ def _get_bike_entity_cfg() -> EntityCfg:
+ 
+ 
+ # ============================================================
+-# 2. カスタム観測関数
++# 2. カスタム観測関数（クラスベース term）
+ # ============================================================
+-class ComplementaryRollFilter:
+-    def __init__(
+-        self,
+-        accel_sensor_name: str = "bike/body_accel",
+-        gyro_sensor_name: str = "bike/body_gyro",
+-        alpha: float = 0.98,
+-        dt: float = 0.05,
+-    ):
+-        self.accel_sensor_name = accel_sensor_name
+-        self.gyro_sensor_name = gyro_sensor_name
+-        self.alpha = alpha
+-        self.dt = dt
+-        self.roll = None
+-        self.roll_rate_value = None
+-
+-    def update(self, env) -> torch.Tensor:
+-        accel = env.scene[self.accel_sensor_name].data  # [N, 3]
+-        gyro = env.scene[self.gyro_sensor_name].data    # [N, 3]
+ 
+-        ay = accel[:, 1]
+-        az = accel[:, 2]
+-        gx = gyro[:, 0]  # x軸回り roll rate [rad/s]
++class ComplementaryRollFilter:
++    """
++    mjlab クラスベース ObservationTerm として動作する相補フィルタ。
+ 
+-        roll_acc = torch.atan2(ay, az)
++    [FIX2] __init__(self, cfg, env) シグネチャに修正。
++           mjlab が環境生成時に自動でインスタンス化する。
+ 
+-        if self.roll is None or self.roll.shape[0] != env.num_envs:
+-            self.roll = roll_acc.clone()
++    [FIX3] センサー名を "bike/body_accel" 形式に修正。
++    """
+ 
+-        if hasattr(env, "episode_length_buf"):
+-            reset_mask = env.episode_length_buf == 0
+-            self.roll[reset_mask] = roll_acc[reset_mask]
++    def __init__(self, cfg: ObservationTermCfg, env):
++        self.alpha = cfg.params.get("alpha", 0.98)
++        self.dt    = env.step_dt  # ポリシーステップ間隔 [s]
++        # roll 推定値バッファ [num_envs]
++        self._roll = torch.zeros(env.num_envs, device=env.device)
+ 
+-        self.roll = self.alpha * (self.roll + gx * self.dt) + (1.0 - self.alpha) * roll_acc
+-        self.roll_rate_value = gx
++    def reset(self, env_ids: torch.Tensor) -> None:
++        """エピソードリセット時に指定環境のrollをゼロクリア"""
++        self._roll[env_ids] = 0.0
+ 
+-        return self.roll.unsqueeze(-1)
++    def __call__(
++        self,
++        env,
++        accel_sensor_name: str,
++        gyro_sensor_name: str,
++        alpha: float = 0.98,
++    ) -> torch.Tensor:
++        """
++        相補フィルタで roll を推定し [N, 1] で返す。
++
++        相補フィルタ:
++          roll_acc = atan2(ay, az)                  (accelから静的推定)
++          roll_gyro = roll_prev + gx * dt           (gyro積分)
++          roll = alpha * roll_gyro + (1-alpha) * roll_acc
++        """
++        accel = env.scene[accel_sensor_name].data  # [N, 3]
++        gyro  = env.scene[gyro_sensor_name].data   # [N, 3]
+ 
+-    def roll_rate(self, env) -> torch.Tensor:
+-        gyro = env.scene[self.gyro_sensor_name].data
+-        self.roll_rate_value = gyro[:, 0]
+-        return self.roll_rate_value.unsqueeze(-1)
++        ay = accel[:, 1]
++        az = accel[:, 2]
++        gx = gyro[:, 0]   # roll角速度 [rad/s]
+ 
+-    def get_roll(self, env) -> torch.Tensor:
+-        if self.roll is None:
+-            accel = env.scene[self.accel_sensor_name].data
+-            self.roll = torch.atan2(accel[:, 1], accel[:, 2])
+-        return self.roll
++        roll_acc  = torch.atan2(ay, az)
++        self._roll = alpha * (self._roll + gx * self.dt) + (1.0 - alpha) * roll_acc
+ 
+-def body_roll(env, roll_filter: ComplementaryRollFilter) -> torch.Tensor:
+-    return roll_filter.update(env)
++        return self._roll.unsqueeze(-1)  # [N, 1]
+ 
+ 
+-def body_roll_vel(env, roll_filter: ComplementaryRollFilter) -> torch.Tensor:
+-    return roll_filter.roll_rate(env)
++class RollRateObservation:
++    """
++    gyro の x 軸成分（roll角速度）を返す ObservationTerm。
++    ComplementaryRollFilter と独立したクラスにすることで
++    ObservationTermCfg に個別に登録できる。
++    """
+ 
++    def __init__(self, cfg: ObservationTermCfg, env):
++        pass  # 状態なし
+ 
+-def roll_exceeded(env, roll_filter: ComplementaryRollFilter, limit_rad: float) -> torch.Tensor:
+-    roll = roll_filter.get_roll(env)
+-    return torch.abs(roll) > limit_rad
++    def __call__(
++        self,
++        env,
++        gyro_sensor_name: str,
++    ) -> torch.Tensor:
++        gyro = env.scene[gyro_sensor_name].data  # [N, 3]
++        return gyro[:, 0].unsqueeze(-1)           # [N, 1]
+ 
+ 
+ # ============================================================
+-# 3. カスタム報酬関数
++# 3. カスタム報酬・終了条件関数
+ # ============================================================
+ 
+-def bike_reward(
++def body_roll_reward(
+     env,
+-    cart_cfg: SceneEntityCfg,
+-    hinge_cfg: SceneEntityCfg,
++    accel_sensor_name: str,
++    gyro_sensor_name: str,
++    margin: float,
+ ) -> torch.Tensor:
+     """
+-    dm_control の CartPole と同じ滑らかな積和報酬。
+-
+-    r = upright × centered × small_ctrl × small_vel
+-        ↑ [0,1]    ↑ [0,1]   ↑ [0,1]     ↑ [0,1]
+-
+-    すべての条件が同時に満たされたときだけ高い報酬になる。
++    [FIX4] 報酬関数はシンプルな関数として定義。
++           ComplementaryRollFilterのインスタンスを報酬関数に渡すと
++           観測と報酬で異なるインスタンスになり状態が二重管理になるため、
++           報酬ではaccelから直接roll推定する。
+     """
+-    from mjlab.entity import Entity
++    accel = env.scene[accel_sensor_name].data
++    roll  = torch.atan2(accel[:, 1], accel[:, 2])
++    return _tolerance(roll, margin=margin)
+ 
+-    cart: Entity = env.scene[cart_cfg.name]
+ 
+-    # ポール角度 → cos
+-    angle = cart.data.joint_pos[:, hinge_cfg.joint_ids]  # [N, 1]
+-    cos_angle = torch.cos(angle).squeeze(-1)              # [N]
+-
+-    # カート位置 (slider joint)
+-    cart_pos = cart.data.joint_pos[:, cart_cfg.joint_ids].squeeze(-1)  # [N]
++def body_roll_vel_penalty(
++    env,
++    gyro_sensor_name: str,
++    margin: float,
++) -> torch.Tensor:
++    gyro     = env.scene[gyro_sensor_name].data
++    roll_vel = gyro[:, 0]
++    return 1.0 - _tolerance(roll_vel, margin=margin)
+ 
+-    # ポール角速度
+-    pole_vel = cart.data.joint_vel[:, hinge_cfg.joint_ids].squeeze(-1)  # [N]
+ 
+-    # アクション (最後に適用された ctrl 値)
+-    # env.action_manager.action は [N, act_dim]
+-    ctrl = env.action_manager.action.squeeze(-1)  # [N]
++def back_tire_vel_penalty(
++    env,
++    asset_cfg: SceneEntityCfg,
++    margin: float,
++) -> torch.Tensor:
++    from mjlab.entity import Entity
++    bike: Entity = env.scene[asset_cfg.name]
++    back_tire_vel = bike.data.joint_vel[:, asset_cfg.joint_ids].squeeze(-1)
++    return 1.0 - _tolerance(back_tire_vel, margin=margin)
+ 
+-    # 各ファクター ─ すべて [0, 1] の範囲
+-    upright    = (cos_angle + 1.0) / 2.0                      # 直立度
+-    centered   = (1.0 + _tolerance(cart_pos, margin=1.0)) / 2.0  # 中央度
+-    small_ctrl = (4.0 + _tolerance(ctrl,     margin=1.0)) / 5.0  # 制御量の小ささ
+-    small_vel  = (1.0 + _tolerance(pole_vel, margin=5.0)) / 2.0  # 角速度の小ささ
+ 
+-    return upright * centered * small_ctrl * small_vel
++def roll_exceeded(
++    env,
++    accel_sensor_name: str,
++    limit_rad: float,
++) -> torch.Tensor:
++    accel = env.scene[accel_sensor_name].data
++    roll  = torch.atan2(accel[:, 1], accel[:, 2])
++    return torch.abs(roll) > limit_rad
+ 
+ 
+ def _tolerance(x: torch.Tensor, margin: float) -> torch.Tensor:
+-    """
+-    |x| が margin 以下のとき 1、それ以上になるほど 0 に近づくガウス型関数。
+-    dm_control の `tolerance()` の簡略版。
+-    """
+     return torch.exp(-0.5 * (x / margin) ** 2)
+ 
+ 
+ # ============================================================
+-# 4. 環境設定を組み立てる関数
++# 4. 環境設定
+ # ============================================================
+ 
+-def bike_env_cfg(num_envs: int = 1,) -> ManagerBasedRlEnvCfg:
+-    # 特定のEnityの関節を取得する
+-    back_tire_cfg  = SceneEntityCfg("bike", joint_names=("back_tire_pitch",))
+-    fork_cfg = SceneEntityCfg("bike", joint_names=("fork_yaw",))
++def bike_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
+ 
+-    roll_filter = ComplementaryRollFilter(
+-        accel_sensor_name="body_accel",
+-        gyro_sensor_name="body_gyro",
+-        alpha=0.98,
+-        dt=0.01 * 5,
+-    )
++    back_tire_cfg = SceneEntityCfg("bike", joint_names=("back_tire_pitch",))
++
++    # センサー名（エンティティ名/センサー名）
++    ACCEL = "bike/body_accel"
++    GYRO  = "bike/body_gyro"
+ 
+     # ── Observations ────────────────────────────────────────────────
+     actor_terms = {
+@@ -222,45 +214,78 @@ def bike_env_cfg(num_envs: int = 1,) -> ManagerBasedRlEnvCfg:
+             func=joint_vel_rel,
+             params={"asset_cfg": back_tire_cfg},
+         ),
++        # [FIX2] クラスベース term: func にクラスを渡す
+         "body_roll": ObservationTermCfg(
+-            func=body_roll,
+-            params={"roll_filter": roll_filter},
++            func=ComplementaryRollFilter,
++            params={
++                "accel_sensor_name": ACCEL,
++                "gyro_sensor_name":  GYRO,
++                "alpha": 0.98,
++            },
+         ),
+         "body_roll_vel": ObservationTermCfg(
+-            func=body_roll_vel,
+-            params={"roll_filter": roll_filter},
++            func=RollRateObservation,
++            params={
++                "gyro_sensor_name": GYRO,
++            },
+         ),
+     }
+     observations = {
+         "actor":  ObservationGroupCfg(actor_terms),
+-        "critic": ObservationGroupCfg({**actor_terms}),  # critic は同じ観測を使う
++        "critic": ObservationGroupCfg({**actor_terms}),
+     }
+ 
+     # ── Actions ─────────────────────────────────────────────────────
++    # [FIX5] actuator_names はタプル形式（末尾カンマ必須）
++    #        XML の motor名ではなく joint名を使う（cartpoleで確認済み）
+     actions = {
+-        "effort": JointEffortActionCfg(
++        # back_tire: motor アクチュエータ（力制御）
++        "back_tire_motor": JointEffortActionCfg(
+             entity_name="bike",
+-            actuator_names=("back_tire_motor", "fork_motor"),
+-            scale=1.0,
++            actuator_names=("back_tire_pitch",),
++            scale=12.0,
+         ),
++        # fork: position アクチュエータ（位置制御）
++        # 現在は固定（60deg）のためコメントアウト
++        # fork を動かす場合は JointPositionActionCfg のimportも解除すること
++        # "fork_motor": JointPositionActionCfg(
++        #     entity_name="bike",
++        #     actuator_names=("fork_yaw",),
++        #     scale=math.radians(90),
++        # ),
+     }
+ 
+     # ── Rewards ─────────────────────────────────────────────────────
+     rewards = {
+-        "smooth_reward": RewardTermCfg(
+-            func=bike_reward,
++        "body_roll": RewardTermCfg(
++            func=body_roll_reward,
+             weight=1.0,
+-            params={"cart_cfg": cart_cfg, "hinge_cfg": hinge_cfg},
++            params={
++                "accel_sensor_name": ACCEL,
++                "margin": math.radians(15.0),
++            },
++        ),
++        "body_roll_vel": RewardTermCfg(
++            func=body_roll_vel_penalty,
++            weight=-0.1,
++            params={
++                "gyro_sensor_name": GYRO,
++                "margin": 1.0,
++            },
++        ),
++        "back_tire_vel": RewardTermCfg(
++            func=back_tire_vel_penalty,
++            weight=-0.05,
++            params={"asset_cfg": back_tire_cfg, "margin": 10.0},
+         ),
+     }
+ 
+     # ── Terminations ────────────────────────────────────────────────
+-    # タイムアウトのみ（time_out=True で「打ち切り」扱いになり価値関数をブートストラップ）
+     terminations = {
+         "roll_exceeded": TerminationTermCfg(
+             func=roll_exceeded,
+             params={
+-                "roll_filter": roll_filter,
++                "accel_sensor_name": ACCEL,
+                 "limit_rad": math.radians(45.0),
+             },
+         ),
+@@ -270,36 +295,35 @@ def bike_env_cfg(num_envs: int = 1,) -> ManagerBasedRlEnvCfg:
+         ),
+     }
+ 
+-    # ── Events (エピソードリセット時のランダム化) ────────────────────
+-    # 毎エピソード、初期状態に少しノイズを加えて多様な状態から学習させる
++    # ── Events ──────────────────────────────────────────────────────
++    # [FIX1] mode="reset" に修正
+     events = {
+-        "reset_slider": EventTermCfg(
++        "reset_fork": EventTermCfg(
+             func=reset_joints_by_offset,
+-            mode="reset",
++            mode="reset",                  
+             params={
+                 "position_range": (-0.1, 0.1),
+-                "velocity_range": (-0.01, 0.01),
+-                "asset_cfg": SceneEntityCfg("cartpole", joint_names=("slider",)),
++                "velocity_range": (0.0, 0.0),
++                "asset_cfg": SceneEntityCfg("bike", joint_names=("fork_yaw",)),
+             },
+         ),
+-        "reset_hinge": EventTermCfg(
++        "reset_back_tire": EventTermCfg(
+             func=reset_joints_by_offset,
+             mode="reset",
+             params={
+-                "position_range": (-0.1, 0.1),
++                "position_range": (0.0, 0.0),
+                 "velocity_range": (-0.01, 0.01),
+-                "asset_cfg": SceneEntityCfg("cartpole", joint_names=("hinge_1",)),
++                "asset_cfg": SceneEntityCfg("bike", joint_names=("back_tire_pitch",)),
+             },
+         ),
+     }
+ 
+-    # ── 全体を ManagerBasedRlEnvCfg にまとめる ───────────────────────
+     return ManagerBasedRlEnvCfg(
+         scene=SceneCfg(
+             terrain=TerrainEntityCfg(terrain_type="plane"),
+             entities={"bike": _get_bike_entity_cfg()},
+             num_envs=num_envs,
+-            env_spacing=4.0,    # 並列環境の配置間隔 [m]
++            env_spacing=4.0,
+         ),
+         observations=observations,
+         actions=actions,
+@@ -311,6 +335,6 @@ def bike_env_cfg(num_envs: int = 1,) -> ManagerBasedRlEnvCfg:
+                 timestep=0.001,
+             ),
+         ),
+-        decimation=5,           # 物理 5 ステップに 1 回ポリシーを呼ぶ (20 Hz 制御)
+-        episode_length_s=50.0,  # 1 エピソードの最大長さ [秒]
+-    )
++        decimation=5,
++        episode_length_s=50.0,
++    )
+\ No newline at end of file
+diff --git a/tools/train.py b/tools/train.py
+deleted file mode 100644
+index 60033f7..0000000
+--- a/tools/train.py
++++ /dev/null
+@@ -1,198 +0,0 @@
+-"""
+-train.py
+-=========
+-Cartpole 環境を mjlab + RSL-RL (PPO) で学習するスクリプト。
+-
+-使い方:
+-    # バランス課題（デフォルト）
+-    python train.py
+-
+-    # スウィングアップ課題
+-    python train.py --task swingup
+-
+-    # 並列環境数を変える
+-    python train.py --num-envs 512
+-
+-    # GPU ID を指定する（デフォルト: 0）
+-    python train.py --gpu-id 0
+-
+-    # 学習イテレーション数を変える
+-    python train.py --max-iters 1000
+-
+-注意:
+-    mjlab は NVIDIA GPU が必要（学習時）。
+-    CPU のみの場合は `--gpu-id -1` を指定してください（速度は遅くなります）。
+-"""
+-
+-import argparse
+-from dataclasses import dataclass
+-from pathlib import Path
+-from datetime import datetime
+-
+-# ── mjlab ─────────────────────────────────────────────────────────────
+-from mjlab.tasks.registry import register_mjlab_task
+-from mjlab.rl import RslRlOnPolicyRunnerCfg, RslRlModelCfg, RslRlPpoAlgorithmCfg
+-
+-# 今回作った環境設定をインポート
+-from cartpole_env_cfg import cartpole_env_cfg
+-
+-
+-
+-# ============================================================
+-# PPO ハイパーパラメータ設定
+-# ============================================================
+-
+-def cartpole_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+-    """
+-    Cartpole 用の RSL-RL PPO 設定。
+-
+-    ネットワーク:
+-        Actor / Critic ともに 2 層 MLP (64 ユニット, ELU 活性化)
+-        Cartpole は状態空間が小さいので軽量なネットワークで十分。
+-
+-    PPO ハイパーパラメータ:
+-        学習率: 1e-3  ← Adam オプティマイザ
+-        ミニバッチ数: 4
+-        エポック数: 5  ← 1 ロールアウトを 5 回学習
+-        クリップ比率: 0.2  ← 標準的な PPO 設定
+-    """
+-    return RslRlOnPolicyRunnerCfg(
+-        # ── ネットワーク構造 ─────────────────────────────────────────
+-        # Actor と Critic は別々の RslRlModelCfg で設定する（旧 RslRlPpoActorCriticCfg は廃止）
+-        actor=RslRlModelCfg(
+-            class_name="MLPModel",
+-            hidden_dims=(64, 64),        # MLP: obs_dim → 64 → 64 → act_dim
+-            activation="elu",
+-            distribution_cfg={
+-                "class_name": "GaussianDistribution",
+-                "init_std": 1.0,
+-                "std_type": "scalar",
+-            },
+-        ),
+-        critic=RslRlModelCfg(
+-            class_name="MLPModel",
+-            hidden_dims=(64, 64),        # MLP: obs_dim → 64 → 64 → 1
+-            activation="elu",
+-            distribution_cfg=None,
+-        ),
+-        # ── PPO アルゴリズム ─────────────────────────────────────────
+-        algorithm=RslRlPpoAlgorithmCfg(
+-            value_loss_coef=1.0,
+-            use_clipped_value_loss=True,
+-            clip_param=0.2,
+-            entropy_coef=0.005,          # 小さいエントロピー係数（探索促進）
+-            num_learning_epochs=5,
+-            num_mini_batches=4,
+-            learning_rate=1e-3,
+-            schedule="adaptive",         # KL ダイバージェンスに基づいてlrを調整
+-            gamma=0.99,                  # 割引率
+-            lam=0.95,                    # GAE の λ
+-            desired_kl=0.01,
+-            max_grad_norm=1.0,
+-        ),
+-        # ── トレーニングループ ────────────────────────────────────────
+-        num_steps_per_env=24,            # 1 イテレーションで各環境から収集するステップ数
+-        max_iterations=1000,              # 総イテレーション数
+-        # ── ロギング・保存 ─────────────────────────────────────────
+-        save_interval=200,               # 100 イテレーションごとにモデルを保存
+-        experiment_name="cartpole",
+-        run_name="test",                     # 空にすると日時から自動生成
+-        logger="tensorboard",            # "tensorboard" / "wandb"
+-    )
+-
+-
+-# ============================================================
+-# メイン
+-# ============================================================
+-
+-def main():
+-    parser = argparse.ArgumentParser(description="Cartpole mjlab training")
+-    parser.add_argument(
+-        "--task",
+-        choices=["balance", "swingup"],
+-        default="swingup",
+-        help="学習する課題。balance=バランス, swingup=スウィングアップ",
+-    )
+-    parser.add_argument(
+-        "--num-envs",
+-        type=int,
+-        default=512,
+-        help="並列環境数。GPU 学習時は 512〜4096 推奨",
+-    )
+-    parser.add_argument(
+-        "--gpu-id",
+-        type=int,
+-        default=0,
+-        help="使用する GPU の ID。-1 で CPU 学習（低速）",
+-    )
+-    parser.add_argument(
+-        "--max-iters",
+-        type=int,
+-        default=1000,
+-        help="学習の総イテレーション数",
+-    )
+-    args = parser.parse_args()
+-
+-    swing_up = args.task == "swingup"
+-    task_id  = "MyCartpole-Swingup" if swing_up else "MyCartpole-Balance"
+-
+-    print(f"[train] Task      : {task_id}")
+-    print(f"[train] Num envs  : {args.num_envs}")
+-    print(f"[train] GPU ID    : {args.gpu_id}")
+-    print(f"[train] Max iters : {args.max_iters}")
+-
+-    # ── 1. 環境・PPO 設定を作る ─────────────────────────────────────
+-    env_cfg = cartpole_env_cfg(swing_up=swing_up, num_envs=args.num_envs)
+-    rl_cfg  = cartpole_ppo_runner_cfg()
+-
+-    # max_iterations を CLI 引数で上書き
+-    rl_cfg.max_iterations = args.max_iters
+-
+-    # play 用設定（ランダム化なし・エピソード長無制限）
+-    play_cfg = cartpole_env_cfg(swing_up=swing_up, num_envs=1)
+-    play_cfg.episode_length_s = float("inf")
+-
+-    # ── 2. タスクを登録する ──────────────────────────────────────────
+-    # register_mjlab_task は タスク名 → (env_cfg, rl_cfg) のペアを登録する
+-    register_mjlab_task(
+-        task_id=task_id,
+-        env_cfg=env_cfg,
+-        play_env_cfg=play_cfg,
+-        rl_cfg=rl_cfg,
+-    )
+-
+-    # ── 3. 学習を実行する ────────────────────────────────────────────
+-    import torch
+-    # MjlabOnPolicyRunner と RslRlVecEnvWrapper は mjlab.rl のトップレベルに公開されている
+-    from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
+-    from mjlab.envs import ManagerBasedRlEnv
+-
+-    device = f"cuda:{args.gpu_id}" if args.gpu_id >= 0 else "cpu"
+-
+-    # 環境を生成
+-    env = ManagerBasedRlEnv(cfg=env_cfg, device=device)
+-    # RSL-RL が期待する VecEnv インターフェースにラップ
+-    vec_env = RslRlVecEnvWrapper(env)
+-
+-    # PPO ランナーを作る
+-    run_name = rl_cfg.run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
+-    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / run_name)
+-    import dataclasses
+-    runner = MjlabOnPolicyRunner(
+-        env=vec_env,
+-        train_cfg=dataclasses.asdict(rl_cfg),  # dataclass → dict に変換
+-        log_dir=log_dir,
+-        device=device,
+-    )
+-
+-    # 学習開始
+-    print(f"\n[train] 学習を開始します... (ログ: {log_dir})")
+-    print("[train] TensorBoard: tensorboard --logdir logs\n")
+-    runner.learn(num_learning_iterations=rl_cfg.max_iterations)
+-
+-    print("[train] 学習完了！")
+-    env.close()
+-
+-
+-if __name__ == "__main__":
+-    main()
+\ No newline at end of file

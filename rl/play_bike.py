@@ -2,7 +2,7 @@
 Play a trained Bike policy with mjlab viewers.
 
 Examples:
-    python tools/play_bike.py --checkpoint tools/logs/bike/test/model_999.pt
+    python tools/play_bike.py --checkpoint tools/logs/bike/log5/model_1799.pt
     python tools/play_bike.py --checkpoint tools/logs/bike/test/model_999.pt --viewer viser
     python tools/play_bike.py --agent random --viewer native
     python tools/play_bike.py --agent zero --viewer headless --steps 500

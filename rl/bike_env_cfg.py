@@ -33,6 +33,7 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.entity import EntityCfg, EntityArticulationInfoCfg
 from mjlab.actuator import XmlActuatorCfg
+from mjlab.utils.noise import GaussianNoiseCfg, UniformNoiseCfg
 
 # ============================================================
 # 0. XML パス
@@ -101,14 +102,6 @@ class ComplementaryRollFilter:
         gyro_sensor_name: str,
         alpha: float = 0.98,
     ) -> torch.Tensor:
-        """
-        相補フィルタで roll を推定し [N, 1] で返す。
-
-        相補フィルタ:
-          roll_acc = atan2(ay, az)                  (accelから静的推定)
-          roll_gyro = roll_prev + gx * dt           (gyro積分)
-          roll = alpha * roll_gyro + (1-alpha) * roll_acc
-        """
         accel = env.scene[accel_sensor_name].data  # [N, 3]
         gyro  = env.scene[gyro_sensor_name].data   # [N, 3]
 
@@ -232,6 +225,7 @@ def bike_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         "back_tire_vel": ObservationTermCfg(
             func=joint_vel_rel,
             params={"asset_cfg": back_tire_cfg},
+            noise=GaussianNoiseCfg(mean=0.0, std=0.01),
         ),
         # [FIX2] クラスベース term: func にクラスを渡す
         "body_roll": ObservationTermCfg(
@@ -241,17 +235,19 @@ def bike_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "gyro_sensor_name":  GYRO,
                 "alpha": 0.98,
             },
+            noise=GaussianNoiseCfg(mean=0.0, std=0.01),
         ),
         "body_roll_vel": ObservationTermCfg(
             func=RollRateObservation,
             params={
                 "gyro_sensor_name": GYRO,
             },
+            noise=GaussianNoiseCfg(mean=0.0, std=0.01),
         ),
     }
     observations = {
-        "actor":  ObservationGroupCfg(actor_terms),
-        "critic": ObservationGroupCfg({**actor_terms}),
+        "actor":  ObservationGroupCfg(actor_terms, enable_corruption=True),
+        "critic": ObservationGroupCfg({**actor_terms}, enable_corruption=False),
     }
 
     # ── Actions ─────────────────────────────────────────────────────
@@ -305,7 +301,7 @@ def bike_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=roll_exceeded,
             params={
                 "accel_sensor_name": ACCEL,
-                "limit_rad": math.radians(45.0),
+                "limit_rad": math.radians(10.0),
             },
         ),
         "time_out": TerminationTermCfg(
@@ -366,6 +362,6 @@ def bike_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 timestep=0.001,
             ),
         ),
-        decimation=5,
+        decimation=10,
         episode_length_s=50.0,
     )

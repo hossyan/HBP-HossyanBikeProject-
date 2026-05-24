@@ -1,0 +1,69 @@
+--- git commit ---
+de7cfb3d24fe64c5114d56501306c4cea942e92b
+
+
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   tools/bike_V3_mjcf.xml
+	modified:   tools/train_bike.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/tools/bike_V3_mjcf.xml b/tools/bike_V3_mjcf.xml
+index a59bf0c..df39918 100644
+--- a/tools/bike_V3_mjcf.xml
++++ b/tools/bike_V3_mjcf.xml
+@@ -23,7 +23,7 @@
+   <worldbody>
+     <body name="body" pos=".0 .0 .0">
+       <freejoint />
+-      <inertial pos="-251.337e-3 -1.123e-3 310.924e-3" mass="2.3123167" diaginertia="0.069594 0.124884 0.083959" />
++      <inertial pos="-251.337e-3 -1.123e-3 310.924e-3" mass="2.3123167" diaginertia="0.06237483005 0.04698001994 0.03020791479" />
+       <geom class="visual" type="mesh" mesh="body"/>
+       <geom type="mesh" mesh="body" group="0" />
+       <site name="imu_site" pos="-200.0e-3 0 424.357e-3" size="0.01" rgba="1 0 0 1"/>
+@@ -31,7 +31,7 @@
+       <!-- back_tire -->
+       <body name="back_tire" pos=".0 .0 .15">
+         <joint name="back_tire_pitch" type="hinge" pos="0 0 0" axis="0 -1 0" limited="false" frictionloss="0.161745" damping="1.0e-6" armature="0.0105"/>
+-        <inertial pos="-0 -4.273e-3 -0" mass="0.923928" diaginertia="6.185e-3 1.204e-2 6.185e-3" />
++        <inertial pos="-0 -4.273e-3 -0" mass="0.923928" diaginertia="0.007352292526 0.01090125389 0.007352292526" />
+         <!-- <geom class="visual" type="mesh" mesh="back_tire"/> -->
+         <geom type="mesh" mesh="back_tire" group="0"/>
+       </body>
+@@ -39,13 +39,13 @@
+       <!-- fork -->
+       <body name="fork" pos="-492.314e-3 0.0 344.92e-3" quat="0.9785 0 0.20625 0">
+         <joint name="fork_yaw" type="hinge" pos="0 0 0" axis="0 0 -1" limited="false" frictionloss="0.161745" damping=".0"/>
+-        <inertial pos="0 0 -40.874e-3" mass="0.482246" diaginertia="5.876e-3 5.468e-3 5.957e-4" />
++        <inertial pos="0 0 -40.874e-3" mass="0.482246" diaginertia="0.004616 0.00451647025 0.000100681436" />
+         <geom class="visual" type="mesh" mesh="fork" group="0"/>
+ 
+         <!-- front_tire -->
+         <body name="front_tire" pos=".0 .0 -212.269e-3">
+           <joint name="front_tire_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false"  damping="1.0e-6"/>
+-          <inertial pos=".0 .0 .0" mass="0.749780" diaginertia="5.632e-3 1.110e-2 5.632e-3" />
++          <inertial pos=".0 .0 .0" mass="0.749780" diaginertia="0.005349419022 0.008289292138 0.005349419022" />
+           <!-- <geom class="visual" type="mesh" mesh="front_tire"/> -->
+           <geom type="mesh" mesh="front_tire" group="0" />
+         </body>
+diff --git a/tools/train_bike.py b/tools/train_bike.py
+index 54597ec..fc17709 100644
+--- a/tools/train_bike.py
++++ b/tools/train_bike.py
+@@ -57,7 +57,7 @@ def bike_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+         # ── ロギング・保存 ─────────────────────────────────────────
+         save_interval=200,               # 100 イテレーションごとにモデルを保存
+         experiment_name="bike",
+-        run_name="log4",                     # 空にすると日時から自動生成
++        run_name="log5",                     # 空にすると日時から自動生成
+         logger="tensorboard",            # "tensorboard" / "wandb"
+     )
+ 
