@@ -6,6 +6,8 @@ Examples:
     python tools/play_bike.py --checkpoint tools/logs/bike/test/model_999.pt --viewer viser
     python tools/play_bike.py --agent random --viewer native
     python tools/play_bike.py --agent zero --viewer headless --steps 500
+
+    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log2/model_1799.pt
 """
 
 from __future__ import annotations

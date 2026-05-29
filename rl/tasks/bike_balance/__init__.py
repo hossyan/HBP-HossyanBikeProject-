@@ -11,7 +11,7 @@ from mjlab.tasks.registry import register_mjlab_task
 from .env_cfg import bike_balance_env_cfg, bike_balance_runner_cfg
 
 register_mjlab_task(
-    task_id="Bike-Balance",
+    task_id="Mjlab-Bike-Balance",
     env_cfg=bike_balance_env_cfg(num_envs=512),
     play_env_cfg=bike_balance_env_cfg(num_envs=512),
     rl_cfg=bike_balance_runner_cfg(),

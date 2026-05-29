@@ -23,19 +23,20 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
+import wandb  # ← 追加
 
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.envs import ManagerBasedRlEnv
-
-# タスクのインポート（レジストリへの登録も行われる）
 from tasks.bike_balance.env_cfg import bike_balance_env_cfg, bike_balance_runner_cfg
 
 
 def main():
     parser = argparse.ArgumentParser(description="Bike Balance Training")
-    parser.add_argument("--num-envs",  type=int, default=512)
-    parser.add_argument("--gpu-id",    type=int, default=0)
-    parser.add_argument("--max-iters", type=int, default=1800)
+    parser.add_argument("--num-envs",    type=int, default=512)
+    parser.add_argument("--gpu-id",      type=int, default=0)
+    parser.add_argument("--max-iters",   type=int, default=1800)
+    parser.add_argument("--wandb-project", type=str, default="bike-balance")  # ← 追加
+    parser.add_argument("--run-name",    type=str, default="")                # ← 追加
     args = parser.parse_args()
 
     device = f"cuda:{args.gpu_id}" if args.gpu_id >= 0 else "cpu"
@@ -44,20 +45,30 @@ def main():
     print(f"[train] GPU ID    : {args.gpu_id}")
     print(f"[train] Max iters : {args.max_iters}")
 
-    # 設定を作る
     env_cfg = bike_balance_env_cfg(num_envs=args.num_envs)
     rl_cfg  = bike_balance_runner_cfg()
     rl_cfg.max_iterations = args.max_iters
 
-    # 環境を生成
+    # ── [追加] wandb 初期化 ─────────────────────────────────────────
+    run_name = args.run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
+    wandb.init(
+        project=args.wandb_project,
+        name=run_name,
+        config={
+            "num_envs":   args.num_envs,
+            "max_iters":  args.max_iters,
+            "num_steps":  rl_cfg.num_steps_per_env,
+            "lr":         rl_cfg.algorithm.learning_rate,
+            "gamma":      rl_cfg.algorithm.gamma,
+            "clip_param": rl_cfg.algorithm.clip_param,
+        },
+    )
+
     env     = ManagerBasedRlEnv(cfg=env_cfg, device=device)
     vec_env = RslRlVecEnvWrapper(env)
 
-    # ログディレクトリ
-    run_name = rl_cfg.run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir  = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log1")
+    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log4")
 
-    # ランナーを作る
     runner = MjlabOnPolicyRunner(
         env=vec_env,
         train_cfg=dataclasses.asdict(rl_cfg),
@@ -66,9 +77,9 @@ def main():
     )
 
     print(f"\n[train] 学習を開始します... (ログ: {log_dir})")
-    print("[train] TensorBoard: tensorboard --logdir logs\n")
     runner.learn(num_learning_iterations=rl_cfg.max_iterations)
 
+    wandb.finish()  # ← 追加
     print("[train] 学習完了！")
     env.close()
 

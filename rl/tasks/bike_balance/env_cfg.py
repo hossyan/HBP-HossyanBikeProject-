@@ -144,7 +144,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
     rewards = {
         "body_roll": RewardTermCfg(
             func=body_roll_reward,
-            weight=1.0,
+            weight=3.0,
             params={
                 "accel_sensor_name": ACCEL,
                 "margin": math.radians(15.0),
@@ -159,11 +159,11 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             },
         ),
         # タイヤ速度ペナルティ（必要に応じてコメントアウトを解除）
-        # "back_tire_vel": RewardTermCfg(
-        #     func=back_tire_vel_penalty,
-        #     weight=-0.05,
-        #     params={"asset_cfg": back_tire_cfg, "margin": 10.0},
-        # ),
+        "back_tire_vel": RewardTermCfg(
+            func=back_tire_vel_penalty,
+            weight=-1.0e2,
+            params={"asset_cfg": back_tire_cfg, "margin": 5.0},
+        ),
     }
 
     # ── Terminations ────────────────────────────────────────────────
@@ -284,8 +284,8 @@ def bike_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         ),
         num_steps_per_env=24,
         max_iterations=1000,
-        save_interval=200,
+        save_interval=100,
         experiment_name="bike_balance",
         run_name="",           # 空にすると日時から自動生成
-        logger="tensorboard",
+        logger="wandb",
     )
