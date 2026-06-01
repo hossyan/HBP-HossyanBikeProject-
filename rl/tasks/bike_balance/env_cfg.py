@@ -42,6 +42,7 @@ from .mdp import (
     back_tire_vel_penalty,
     roll_exceeded,
     set_joint_position_target,
+    BldcVelocityPiActionTermCfg,
 )
 
 # ============================================================
@@ -130,10 +131,18 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
 
     # ── Actions ─────────────────────────────────────────────────────
     actions = {
-        "back_tire_motor": JointEffortActionCfg(
+        # "back_tire_motor": JointEffortActionCfg(
+        #     entity_name="bike",
+        #     actuator_names=("back_tire_pitch",),
+        #     scale=12.0,
+        # ),
+        "back_tire_motor": BldcVelocityPiActionTermCfg(
             entity_name="bike",
             actuator_names=("back_tire_pitch",),
-            scale=12.0,
+            scale=4.0,
+            kp_nominal=0.48,
+            ki_nominal=0.0086,
+            max_torque=12.0,
         ),
         # fork: position アクチュエータ（位置制御）
         # 現在は60degで固定のためコメントアウト
@@ -175,7 +184,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         ),
         "action_rate": RewardTermCfg(
             func=mdp_rewards.action_rate_l2,
-            weight=-0.0001,
+            weight=-0.001,
         ),
         "is_terminated": RewardTermCfg(
             func=mdp_rewards.is_terminated,

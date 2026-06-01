@@ -1,0 +1,166 @@
+"""
+actions.py
+===========
+BLDCモータ用 速度型PIコントローラーの ActionTerm 実装。
+
+対象: back_tire_pitch（後輪）
+減速比: 2（モータが関節の2倍速く回る）
+
+変換関係:
+    vel_motor  = vel_joint × gear_ratio        # モータ速度
+    torque_joint = torque_motor × gear_ratio   # 関節トルク（増力）
+    ただし MuJoCo の gear が XML で設定済みの場合は
+    set_joint_effort_target に関節トルクをそのまま渡せばよい。
+
+速度型PI:
+    e[k]  = vel_target_joint - vel_current_joint
+    Δu    = Kp*(e[k] - e[k-1]) + Ki*e[k]*dt
+    u[k]  = clamp(u[k-1] + Δu, -max_torque, max_torque)
+"""
+
+from __future__ import annotations
+from dataclasses import dataclass, field
+import torch
+from mjlab.managers import ActionTerm, ActionTermCfg
+
+
+# ============================================================
+# 設定クラス
+# ============================================================
+
+@dataclass
+class BldcVelocityPiActionTermCfg(ActionTermCfg):
+    """
+    BLDCモータ 速度型PIアクションの設定。
+
+    entity_name   : シーン内のエンティティ名
+    actuator_names: XML のアクチュエータ名（内部でjoint IDに変換）
+    scale         : ポリシー出力 [-1, 1] → 関節目標速度 [rad/s]
+    gear_ratio    : 減速比（モータ速度 = 関節速度 × gear_ratio）
+    kp_nominal    : 比例ゲイン（関節速度誤差に対して）
+    ki_nominal    : 積分ゲイン
+    max_torque    : 関節トルク上限 [Nm]
+                    （モータトルク上限 = max_torque / gear_ratio）
+    """
+    entity_name: str = "bike"
+    actuator_names: tuple[str, ...] = ("back_tire_pitch",)
+    scale: float = 12.0          # もとの JointEffortActionCfg の scale と合わせる
+    gear_ratio: float = 2.0      # 減速比
+    kp_nominal: float = 2.0
+    ki_nominal: float = 0.5
+    max_torque: float = 10.0     # 関節トルク上限 [Nm]
+
+    def build(self, env) -> BldcVelocityPiActionTerm:
+        return BldcVelocityPiActionTerm(self, env)
+
+
+# ============================================================
+# ActionTerm 本体
+# ============================================================
+
+class BldcVelocityPiActionTerm(ActionTerm):
+    """
+    BLDCモータ用 速度型PIコントローラー。
+
+    ポリシーは「関節目標速度」を出力する。
+    PIは関節速度誤差で計算し、関節トルクをMuJoCoに渡す。
+    減速比は速度変換・トルク変換の両方で考慮する。
+    """
+
+    cfg: BldcVelocityPiActionTermCfg
+
+    def __init__(self, cfg: BldcVelocityPiActionTermCfg, env):
+        # 親クラスが self._entity = env.scene[cfg.entity_name] をセット
+        super().__init__(cfg, env)
+
+        # actuator名からjoint IDを取得（もとのコードに合わせた方法）
+        self._joint_ids, _ = self._entity.find_joints_by_actuator_names(
+            list(cfg.actuator_names)
+        )
+
+        N = env.num_envs
+        device = env.device
+        self._dt = env.physics_dt       # 物理ステップ時間 [s]
+        self._gear = cfg.gear_ratio     # 減速比
+
+        # PIゲインバッファ
+        self._kp = torch.full((N,), cfg.kp_nominal, device=device)
+        self._ki = torch.full((N,), cfg.ki_nominal, device=device)
+
+        # PI状態バッファ
+        self._e_prev  = torch.zeros(N, device=device)
+        self._u_prev  = torch.zeros(N, device=device)
+
+        # 目標速度・生出力バッファ
+        self._target_vel  = torch.zeros(N, device=device)
+        self._raw_actions = torch.zeros(N, len(self._joint_ids), device=device)
+
+    # ── abstractmethod の実装 ─────────────────────────────────────
+
+    @property
+    def action_dim(self) -> int:
+        return len(self._joint_ids)
+
+    @property
+    def raw_action(self) -> torch.Tensor:
+        return self._raw_actions
+
+    def process_actions(self, actions: torch.Tensor) -> None:
+        """
+        ポリシー出力を関節目標速度に変換して保持する。
+        1ポリシーステップに1回呼ばれる。
+
+        actions: [num_envs, action_dim]  ← [-1, 1]
+        目標速度 = actions * scale  [rad/s]（関節速度）
+        """
+        self._raw_actions = actions.clone()
+        # ポリシー出力 → 関節目標速度 [rad/s]
+        self._target_vel = actions.squeeze(-1) * self.cfg.scale
+
+    def apply_actions(self) -> None:
+        """
+        速度型PIで関節トルクを計算してMuJoCoに渡す。
+        デシメーションループ内で物理ステップごとに呼ばれる。
+
+        減速比の考慮:
+            - 誤差はすべて関節速度ベースで計算
+            - PIゲインはモータ側の応答を想定して設定するため
+              関節誤差に対して gear_ratio 倍した感度になる
+            - 出力トルクは関節トルクとしてそのまま渡す
+              （MuJoCo の gear 設定が XML にある場合は二重にならないよう注意）
+        """
+        # 現在の関節速度 [N]
+        current_vel_joint = self._entity.data.joint_vel[
+            :, self._joint_ids
+        ].squeeze(-1)
+
+        # 関節速度誤差
+        e = self._target_vel - current_vel_joint  # [N]
+
+        # 速度型PI
+        # Kp・Ki はモータ軸での感度を想定しているため gear 倍してから適用
+        delta_u = (
+            self._kp * self._gear * (e - self._e_prev)
+            + self._ki * self._gear * e * self._dt
+        )
+        u = self._u_prev + delta_u  # [N]（関節トルク）
+
+        # 関節トルクをクランプ
+        u = torch.clamp(u, -self.cfg.max_torque, self.cfg.max_torque)
+
+        # MuJoCo に関節トルクを渡す
+        self._entity.set_joint_effort_target(
+            u.unsqueeze(-1),
+            joint_ids=self._joint_ids,
+        )
+
+        # 状態更新
+        self._e_prev = e.clone()
+        self._u_prev = u.clone()
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        """エピソードリセット時にPI状態をゼロクリア。"""
+        self._e_prev[env_ids]      = 0.0
+        self._u_prev[env_ids]      = 0.0
+        self._target_vel[env_ids]  = 0.0
+        self._raw_actions[env_ids] = 0.0
