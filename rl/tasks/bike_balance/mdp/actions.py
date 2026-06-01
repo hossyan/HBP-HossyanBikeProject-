@@ -29,9 +29,9 @@ from mjlab.managers import ActionTerm, ActionTermCfg
 # ============================================================
 
 @dataclass
-class BldcVelocityPiActionTermCfg(ActionTermCfg):
+class VelocityPiActionTermCfg(ActionTermCfg):
     """
-    BLDCモータ 速度型PIアクションの設定。
+    モータ 速度型PIアクションの設定。
 
     entity_name   : シーン内のエンティティ名
     actuator_names: XML のアクチュエータ名（内部でjoint IDに変換）
@@ -50,15 +50,15 @@ class BldcVelocityPiActionTermCfg(ActionTermCfg):
     ki_nominal: float = 0.5
     max_torque: float = 10.0     # 関節トルク上限 [Nm]
 
-    def build(self, env) -> BldcVelocityPiActionTerm:
-        return BldcVelocityPiActionTerm(self, env)
+    def build(self, env) -> VelocityPiActionTerm:
+        return VelocityPiActionTerm(self, env)
 
 
 # ============================================================
 # ActionTerm 本体
 # ============================================================
 
-class BldcVelocityPiActionTerm(ActionTerm):
+class VelocityPiActionTerm(ActionTerm):
     """
     BLDCモータ用 速度型PIコントローラー。
 
@@ -67,9 +67,9 @@ class BldcVelocityPiActionTerm(ActionTerm):
     減速比は速度変換・トルク変換の両方で考慮する。
     """
 
-    cfg: BldcVelocityPiActionTermCfg
+    cfg: VelocityPiActionTermCfg
 
-    def __init__(self, cfg: BldcVelocityPiActionTermCfg, env):
+    def __init__(self, cfg: VelocityPiActionTermCfg, env):
         # 親クラスが self._entity = env.scene[cfg.entity_name] をセット
         super().__init__(cfg, env)
 
@@ -164,3 +164,20 @@ class BldcVelocityPiActionTerm(ActionTerm):
         self._u_prev[env_ids]      = 0.0
         self._target_vel[env_ids]  = 0.0
         self._raw_actions[env_ids] = 0.0
+
+def randomize_pid_gains(
+    env,
+    env_ids: torch.Tensor,
+    kp_range: tuple,
+    ki_range: tuple,
+) -> None:
+    """
+    エピソードリセット時にPIDゲインをランダム化する。
+    VelocityPIDActionTerm のインスタンスに直接アクセスして値を書き換える。
+    """
+    # ActionManagerからVelocityPIDActionTermのインスタンスを取得
+    pid_term = env.action_manager.get_term("back_tire_motor")
+
+    n = len(env_ids)
+    pid_term._kp[env_ids] = torch.empty(n, device=env.device).uniform_(*kp_range)
+    pid_term._ki[env_ids] = torch.empty(n, device=env.device).uniform_(*ki_range)

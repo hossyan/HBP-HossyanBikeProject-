@@ -7,7 +7,7 @@ Examples:
     python tools/play_bike.py --agent random --viewer native
     python tools/play_bike.py --agent zero --viewer headless --steps 500
 
-    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log3/model_1999.pt
+    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log4/model_1999.pt
 """
 
 from __future__ import annotations
