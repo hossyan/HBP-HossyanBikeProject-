@@ -56,7 +56,7 @@
   <actuator>
     <!-- backtire -->
     <motor name="back_tire_motor" joint="back_tire_pitch" 
-          ctrllimited="true" ctrlrange="-12.0 12.0" gear="1" />
+          ctrllimited="true" ctrlrange="-12.0 12.0" gear="2" />
     <!-- fork -->
     <position name="fork_motor" joint="fork_yaw" gear="1" 
           kp="100" kv="10" 

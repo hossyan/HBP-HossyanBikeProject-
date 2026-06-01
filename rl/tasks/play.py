@@ -7,12 +7,13 @@ Examples:
     python tools/play_bike.py --agent random --viewer native
     python tools/play_bike.py --agent zero --viewer headless --steps 500
 
-    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log2/model_1799.pt
+    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log2/model_1999.pt
 """
 
 from __future__ import annotations
 
 import argparse
+import numpy as np
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ def load_policy(checkpoint_path: str, obs_dim: int, act_dim: int, device: str):
         obs_groups=obs_groups,
         obs_set="actor",
         output_dim=act_dim,
-        hidden_dims=(128, 64),
+        hidden_dims=(128, 128),
         activation="elu",
         distribution_cfg={
             "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
@@ -93,9 +94,14 @@ class EnvWrapper:
     def get_observations(self) -> torch.Tensor:
         if self._obs_dict is None:
             self.reset()
+
         return self._obs_dict["actor"]
 
     def step(self, actions: torch.Tensor):
+        obs_np    = self._obs_dict["actor"][0].cpu().numpy()
+        action_np = actions[0].cpu().numpy()
+        print(f"[obs: {np.rad2deg(obs_np[1])} | action: {action_np}")
+
         self._obs_dict, _, terminated, truncated, _ = self.env.step(actions)
         if terminated.any() or truncated.any():
             self._obs_dict, _ = self.env.reset()

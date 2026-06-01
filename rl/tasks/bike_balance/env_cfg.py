@@ -10,9 +10,12 @@ from mjlab.envs.mdp import (
     joint_vel_rel,
     reset_joints_by_offset,
     reset_scene_to_default,
+    reset_root_state_uniform,
     time_out,
     JointEffortActionCfg,
     # JointPositionActionCfg,  # fork を動かす場合はコメントアウトを解除
+    dr,
+    rewards as mdp_rewards,
 )
 from mjlab.managers import (
     EventTermCfg,
@@ -95,11 +98,6 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
 
     # ── Observations ────────────────────────────────────────────────
     actor_terms = {
-        "back_tire_vel": ObservationTermCfg(
-            func=joint_vel_rel,
-            params={"asset_cfg": back_tire_cfg},
-            noise=GaussianNoiseCfg(mean=0.0, std=0.01),   # [rad/s]
-        ),
         "body_roll": ObservationTermCfg(
             func=ComplementaryRollFilter,
             params={
@@ -107,6 +105,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "gyro_sensor_name":  GYRO,
                 "alpha": 0.98,
             },
+            # history_length=2,
+            # flatten_history_dim=True,
             noise=GaussianNoiseCfg(mean=0.0, std=0.005),  # [rad]
         ),
         "body_roll_vel": ObservationTermCfg(
@@ -114,6 +114,11 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             params={
                 "gyro_sensor_name": GYRO,
             },
+            noise=GaussianNoiseCfg(mean=0.0, std=0.01),   # [rad/s]
+        ),
+        "back_tire_vel": ObservationTermCfg(
+            func=joint_vel_rel,
+            params={"asset_cfg": back_tire_cfg},
             noise=GaussianNoiseCfg(mean=0.0, std=0.01),   # [rad/s]
         ),
     }
@@ -128,7 +133,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         "back_tire_motor": JointEffortActionCfg(
             entity_name="bike",
             actuator_names=("back_tire_pitch",),
-            scale=4.0,
+            scale=12.0,
         ),
         # fork: position アクチュエータ（位置制御）
         # 現在は60degで固定のためコメントアウト
@@ -144,11 +149,15 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
     rewards = {
         "body_roll": RewardTermCfg(
             func=body_roll_reward,
-            weight=3.0,
+            weight=1.0,
             params={
                 "accel_sensor_name": ACCEL,
-                "margin": math.radians(15.0),
+                "margin": math.radians(10.0),
             },
+        ),
+        "is_alive": RewardTermCfg(
+            func=mdp_rewards.is_alive,
+            weight=4.0,
         ),
         "body_roll_vel": RewardTermCfg(
             func=body_roll_vel_penalty,
@@ -163,6 +172,14 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=back_tire_vel_penalty,
             weight=-1.0e2,
             params={"asset_cfg": back_tire_cfg, "margin": 5.0},
+        ),
+        "action_rate": RewardTermCfg(
+            func=mdp_rewards.action_rate_l2,
+            weight=-0.0001,
+        ),
+        "is_terminated": RewardTermCfg(
+            func=mdp_rewards.is_terminated,
+            weight=-50,
         ),
     }
 
@@ -187,6 +204,19 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         "reset_scene": EventTermCfg(
             func=reset_scene_to_default,
             mode="reset",
+        ),
+        "reset_body_root": EventTermCfg(
+            func=reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {
+                    "roll": (math.radians(-5.0), math.radians(5.0)),
+                },
+                "velocity_range": {
+                    "roll": (-0.2, 0.2),  # [rad/s]
+                },
+                "asset_cfg": SceneEntityCfg("bike"),
+            }
         ),
         # fork: 60deg固定（ノイズなし）
         "reset_fork": EventTermCfg(
@@ -217,6 +247,24 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "asset_cfg": SceneEntityCfg("bike", joint_names=("back_tire_pitch",)),
             },
         ),
+        # "friction_dr": EventTermCfg(
+        #     mode="reset",
+        #     func=dr.geom_friction,
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
+        #         "ranges": (0.7, 1.0),
+        #         "operation": "abs", # absは直接代入する値,scaleは倍率,addはデフォルト値に足す量
+        #     },
+        # ),
+        "inertia_dr": EventTermCfg(
+            func=dr.pseudo_inertia,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
+                "alpha_range": (-0.05, 0.05), # 質量密度のlog10スケール,original * e^(2α)
+                "t_range": (-0.01, 0.01), #1cmのずれ
+            }
+        )
     }
 
     return ManagerBasedRlEnvCfg(
@@ -254,7 +302,7 @@ def bike_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     return RslRlOnPolicyRunnerCfg(
         actor=RslRlModelCfg(
             class_name="MLPModel",
-            hidden_dims=(128, 64),
+            hidden_dims=(128, 128),
             activation="elu",
             distribution_cfg={
                 "class_name": "GaussianDistribution",
@@ -264,14 +312,14 @@ def bike_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         ),
         critic=RslRlModelCfg(
             class_name="MLPModel",
-            hidden_dims=(128, 64),
+            hidden_dims=(128, 128),
             activation="elu",
             distribution_cfg=None,
         ),
         algorithm=RslRlPpoAlgorithmCfg(
             value_loss_coef=1.0,
             use_clipped_value_loss=True,
-            clip_param=0.2,
+            clip_param=0.15,
             entropy_coef=0.005,
             num_learning_epochs=5,
             num_mini_batches=4,
@@ -284,7 +332,7 @@ def bike_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         ),
         num_steps_per_env=24,
         max_iterations=1000,
-        save_interval=100,
+        save_interval=200,
         experiment_name="bike_balance",
         run_name="",           # 空にすると日時から自動生成
         logger="wandb",
