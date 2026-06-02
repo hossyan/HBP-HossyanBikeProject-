@@ -44,11 +44,12 @@ class VelocityPiActionTermCfg(ActionTermCfg):
     """
     entity_name: str = "bike"
     actuator_names: tuple[str, ...] = ("back_tire_pitch",)
-    scale: float = 12.0          # もとの JointEffortActionCfg の scale と合わせる
+    scale: float = 4.0
     gear_ratio: float = 2.0      # 減速比
     kp_nominal: float = 2.0
     ki_nominal: float = 0.5
-    max_torque: float = 10.0     # 関節トルク上限 [Nm]
+    max_torque: float = 12.0     # 関節トルク上限 [Nm]
+    torque_constant: float = 0.615  # モータのトルク定数 [Nm/A]
 
     def build(self, env) -> VelocityPiActionTerm:
         return VelocityPiActionTerm(self, env)
@@ -82,6 +83,7 @@ class VelocityPiActionTerm(ActionTerm):
         device = env.device
         self._dt = env.physics_dt       # 物理ステップ時間 [s]
         self._gear = cfg.gear_ratio     # 減速比
+        self._torque_const = cfg.torque_constant
 
         # PIゲインバッファ
         self._kp = torch.full((N,), cfg.kp_nominal, device=device)
@@ -145,18 +147,20 @@ class VelocityPiActionTerm(ActionTerm):
         )
         u = self._u_prev + delta_u  # [N]（関節トルク）
 
-        # 関節トルクをクランプ
-        u = torch.clamp(u, -self.cfg.max_torque, self.cfg.max_torque)
+        # 電流出力(u) -> トルクに変換してクランプ
+        torque = u * self._torque_const
+        torque = torch.clamp(torque, -self.cfg.max_torque, self.cfg.max_torque)
 
         # MuJoCo に関節トルクを渡す
         self._entity.set_joint_effort_target(
-            u.unsqueeze(-1),
+            torque.unsqueeze(-1),
             joint_ids=self._joint_ids,
         )
 
-        # 状態更新
+        # 状態更新: 内部では電流(u)を保持するため、クリップ後の電流値に合わせて更新
+        u_clipped = torque / self._torque_const
         self._e_prev = e.clone()
-        self._u_prev = u.clone()
+        self._u_prev = u_clipped.clone()
 
     def reset(self, env_ids: torch.Tensor) -> None:
         """エピソードリセット時にPI状態をゼロクリア。"""

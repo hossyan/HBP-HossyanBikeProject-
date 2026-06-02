@@ -7,13 +7,15 @@ Examples:
     python tools/play_bike.py --agent random --viewer native
     python tools/play_bike.py --agent zero --viewer headless --steps 500
 
-    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log4/model_1999.pt
+    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log8/model_1999.pt
+    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log6/model_1999.pt --record --steps 1000 --output rl/rollout.mp4
 """
 
 from __future__ import annotations
 
 import argparse
 import numpy as np
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -32,7 +34,7 @@ def load_policy(checkpoint_path: str, obs_dim: int, act_dim: int, device: str):
         obs_groups=obs_groups,
         obs_set="actor",
         output_dim=act_dim,
-        hidden_dims=(128, 128),
+        hidden_dims=(128, 128, 128),
         activation="elu",
         distribution_cfg={
             "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
@@ -100,15 +102,11 @@ class EnvWrapper:
     def step(self, actions: torch.Tensor):
         obs_np    = self._obs_dict["actor"][0].cpu().numpy()
         action_np = actions[0].cpu().numpy()
-        print(f"[obs: {np.rad2deg(obs_np[1])} | action: {action_np}")
+        print(f"[obs: {np.rad2deg(obs_np[0])} | action: {action_np}")
 
         self._obs_dict, _, terminated, truncated, _ = self.env.step(actions)
         if terminated.any() or truncated.any():
             self._obs_dict, _ = self.env.reset()
-
-    def close(self):
-        self.env.close()
-
 
 class ZeroAgent:
     def __init__(self, act_dim: int):
@@ -159,10 +157,14 @@ def run_play(args):
         print("[play] Agent          : policy")
 
     try:
-        if args.viewer == "native":
+        if args.record:
+            _run_with_offscreen(env, agent, steps=args.steps, output_path=args.output)
+        elif args.viewer == "native":
             _run_with_native_viewer(env, agent)
         elif args.viewer == "viser":
             _run_with_viser(env, agent)
+        # elif args.record:
+        #     _run_with_offscreen(env, agent, steps=args.steps, output_path=args.output)
         else:
             _run_headless(env, agent, steps=args.steps)
     finally:
@@ -173,6 +175,7 @@ def _run_with_native_viewer(env, agent):
     from mjlab.viewer import NativeMujocoViewer
 
     print("[play] Starting Native Viewer. Press Ctrl+C or Q to quit.")
+
     wrapped_env = EnvWrapper(env)
     wrapped_env.reset()
     viewer = NativeMujocoViewer(wrapped_env, PolicyWrapper(agent))
@@ -212,6 +215,47 @@ def _run_headless(env, agent, steps: int):
 
     print(f"[play] Done. Total mean reward: {total_reward:.2f}")
 
+def _run_with_offscreen(env, agent, steps: int, output_path: str):
+    from mjlab.viewer import OffscreenRenderer, ViewerConfig
+    import mediapy
+
+    print(f"[play] Recording {steps} steps → {output_path}")
+
+    # env の内部から必要なオブジェクトを取り出す
+    cfg   = env.cfg.viewer if hasattr(env.cfg, "viewer") else ViewerConfig()
+    model = env.scene.model   # MjModel
+    scene = env.scene         # Scene
+
+    renderer = OffscreenRenderer(
+        model=model,
+        cfg=cfg,
+        scene=scene,
+    )
+
+    frames = []
+    obs_dict, _ = env.reset()
+
+    for step in range(steps):
+        action = get_action(agent, obs_dict)
+        obs_dict, reward, terminated, truncated, _ = env.step(action)
+
+        # フレームを更新して取得
+        renderer.update(data=env.scene.data)
+        # フレームの取得方法（update後にピクセルデータを取り出す）
+        import numpy as np
+        frame = np.copy(renderer._rgb_buffer)  # 内部バッファから取得
+        frames.append(frame)
+
+        if step % 100 == 0:
+            print(f"[play] {step}/{steps}")
+
+        if terminated.any() or truncated.any():
+            obs_dict, _ = env.reset()
+
+    # mp4保存
+    fps = int(1.0 / env.step_dt)
+    mediapy.write_video(output_path, frames, fps=fps)
+    print(f"[play] 保存完了: {output_path} ({len(frames)}フレーム, {fps}fps)")
 
 def main():
     parser = argparse.ArgumentParser(description="Bike mjlab play/viewer")
@@ -250,6 +294,17 @@ def main():
         type=int,
         default=500,
         help="Number of steps for headless playback.",
+    )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="OffscreenRendererで録画してmp4を保存する",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="output.mp4",
+        help="出力するmp4ファイルのパス",
     )
     args = parser.parse_args()
 

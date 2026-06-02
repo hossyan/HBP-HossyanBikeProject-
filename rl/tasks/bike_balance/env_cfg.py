@@ -189,7 +189,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         ),
         "is_terminated": RewardTermCfg(
             func=mdp_rewards.is_terminated,
-            weight=-50,
+            weight=-1000,
         ),
     }
 
@@ -199,7 +199,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=roll_exceeded,
             params={
                 "accel_sensor_name": ACCEL,
-                "limit_rad": math.radians(10.0),
+                "limit_rad": math.radians(40.0),
             },
         ),
         "time_out": TerminationTermCfg(
@@ -241,7 +241,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             mode="reset",
             params={
                 "pose_range": {
-                    "roll": (math.radians(-5.0), math.radians(5.0)),
+                    "roll": (math.radians(-2.0), math.radians(2.0)),
                 },
                 "velocity_range": {
                     "roll": (-0.2, 0.2),  # [rad/s]
@@ -322,7 +322,7 @@ def bike_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     return RslRlOnPolicyRunnerCfg(
         actor=RslRlModelCfg(
             class_name="MLPModel",
-            hidden_dims=(128, 128),
+            hidden_dims=(128, 128, 128),
             activation="elu",
             distribution_cfg={
                 "class_name": "GaussianDistribution",
@@ -332,7 +332,7 @@ def bike_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         ),
         critic=RslRlModelCfg(
             class_name="MLPModel",
-            hidden_dims=(128, 128),
+            hidden_dims=(128, 128, 128),
             activation="elu",
             distribution_cfg=None,
         ),

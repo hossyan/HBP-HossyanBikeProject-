@@ -24,7 +24,8 @@
     <body name="body" pos=".0 .0 .0">
       <freejoint />
       <inertial pos="-251.337e-3 -1.123e-3 310.924e-3" mass="2.3123167" diaginertia="0.06237483005 0.04698001994 0.03020791479" />
-      <geom class="visual" type="mesh" mesh="body"/>
+      <!-- <geom class="visual" type="mesh" mesh="body"/> -->
+      <!-- <geom type="box" size="0.15 0.05 0.1" pos="0 0 0.15" group="0" /> -->
       <geom type="mesh" mesh="body" group="0" />
       <site name="imu_site" pos="-200.0e-3 0 424.357e-3" size="0.01" rgba="1 0 0 1"/>
 
@@ -56,7 +57,7 @@
   <actuator>
     <!-- backtire -->
     <motor name="back_tire_motor" joint="back_tire_pitch" 
-          ctrllimited="true" ctrlrange="-12.0 12.0" gear="2" />
+          ctrllimited="true" ctrlrange="-12.0 12.0"  />
     <!-- fork -->
     <position name="fork_motor" joint="fork_yaw" gear="1" 
           kp="100" kv="10" 
