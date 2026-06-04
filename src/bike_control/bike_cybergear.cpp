@@ -3,6 +3,7 @@
 #include <SPI.h>
 #include <MadgwickAHRS.h>
 #include <PS4Controller.h>
+#include "policy.h"
 
 // --- ピン・ハードウェア設定 ---
 #define CAN0_INT 15
@@ -13,8 +14,8 @@ unsigned char len = 0;
 unsigned char buf[8];
 
 // --- モーター基本設定 ---
-#define FRONT_MOTOR_ID  0x7F
-#define BACK_MOTOR_ID  0x7E
+#define FRONT_MOTOR_ID  0x7E
+#define BACK_MOTOR_ID  0x7F
 #define MASTER_ID 0x00
 
 // --- CyberGear 通信モード (拡張ID上位5bit) ---
@@ -34,7 +35,7 @@ unsigned char buf[8];
 #define CONTROL_MODE_CUR      3
 
 // --- 制御目標値 ---
-float front_motor_target = 1.047198f; //60degree in radian
+float front_motor_target = 0.01745329f; //60degree in radian
 float back_motor_target = 0.0f;  //A
 
 float pre_error = 0.0f;
@@ -52,6 +53,10 @@ bool start_flag = false;
 bool circle_prev = false;
 float stick_left_y = 0.0; 
 float stick_right_x = 0.0; 
+
+float obs[3] = {0.0, 0.0, 0.0};
+float action = 0.0;
+float pre_time = 0.0;
 
 // 関数プロトタイプ
 void init_can();
@@ -80,7 +85,6 @@ float accelScale, gyroScale;
 
 float ax,ay,az;
 float gx,gy,gz;
-float roll,pitch,yaw;
 unsigned long microsNow;
 
 float filtered_gx = 0.0;
@@ -108,7 +112,7 @@ void setup() {
 
     // 初期モード設定
     change_mode(FRONT_MOTOR_ID, CONTROL_MODE_POS);
-    change_mode(BACK_MOTOR_ID, CONTROL_MODE_SPD);
+    change_mode(BACK_MOTOR_ID, CONTROL_MODE_CUR);
 }
 
 void loop() {
@@ -133,7 +137,8 @@ void loop() {
         filter.begin(1.0f / dt); 
     }    
     filter.updateIMU(gx, gy, gz, ax, ay, az);
-    roll = filter.getRoll();
+    float roll_deg = filter.getRoll();
+    float roll_rad = roll_deg * (M_PI / 180.0f);
     microsPre = microsNow;
 
     // cybergearからのフィードバック受信
@@ -189,16 +194,22 @@ void loop() {
             ESP.restart();  // M5Stack自体を再起動、BT接続も切れる
         }
     }
-    Serial.printf("start_flag: %d, left_stick_y: %.2f, right_stick_x: %.2f\n", start_flag, stick_left_y, stick_right_x);
 
     // --- observation ---
-    float obs[3] = {roll, filtered_gx, back_motor_spd};
+    obs[0] = -roll_rad;
+    obs[1] = -filtered_gx;
+    obs[2] = -back_motor_spd / 2;
 
     // --- policy ---
+    if(millis() - pre_time >= 10){
+        action = policy_infer(obs);
+        pre_time = millis();
+        Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f\n", obs[0], obs[1], obs[2], action);
+    }
 
     // cybergearへのコマンド送信
     control_position(FRONT_MOTOR_ID, front_motor_target);
-    velocity_type_pid_control(0.0f, back_motor_spd, dt);
+    velocity_type_pid_control(-action, -back_motor_spd, dt);
     if(!start_flag){
         back_motor_target = 0.0f;
     }
