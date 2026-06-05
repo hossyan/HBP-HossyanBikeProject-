@@ -117,6 +117,9 @@ class VelocityPiActionTerm(ActionTerm):
         """
         self._raw_actions = actions.clone()
         # ポリシー出力 → 関節目標速度 [rad/s]
+        # target_vel_motor = actions.squeeze(-1) * self.cfg.scale
+        # self._target_vel = target_vel_motor / self._gear
+
         self._target_vel = actions.squeeze(-1) * self.cfg.scale
 
     def apply_actions(self) -> None:
@@ -132,34 +135,37 @@ class VelocityPiActionTerm(ActionTerm):
               （MuJoCo の gear 設定が XML にある場合は二重にならないよう注意）
         """
         # 現在の関節速度 [N]
-        current_vel_joint = self._entity.data.joint_vel[
+        current_vel_joint_wheel = self._entity.data.joint_vel[
             :, self._joint_ids
         ].squeeze(-1)
 
         # 関節速度誤差
-        e = self._target_vel - current_vel_joint  # [N]
+        current_vel_joint_motor = current_vel_joint_wheel * self._gear
+        e_motor = self._target_vel - current_vel_joint_motor
+        # e_wheel = self._target_vel - current_vel_joint
+        # e_motor = e_wheel * self._gear
 
         # 速度型PI
-        # Kp・Ki はモータ軸での感度を想定しているため gear 倍してから適用
         delta_u = (
-            self._kp * self._gear * (e - self._e_prev)
-            + self._ki * self._gear * e * self._dt
+            self._kp * (e_motor - self._e_prev)
+            + self._ki * e_motor * self._dt
         )
         u = self._u_prev + delta_u  # [N]（関節トルク）
 
         # 電流出力(u) -> トルクに変換してクランプ
-        torque = u * self._torque_const
-        torque = torch.clamp(torque, -self.cfg.max_torque, self.cfg.max_torque)
+        torque_motor = u * self._torque_const
+        torque_motor = torch.clamp(torque_motor, -self.cfg.max_torque, self.cfg.max_torque)
+        torque_wheel = torque_motor * self._gear
 
         # MuJoCo に関節トルクを渡す
         self._entity.set_joint_effort_target(
-            torque.unsqueeze(-1),
+            torque_wheel.unsqueeze(-1),
             joint_ids=self._joint_ids,
         )
 
         # 状態更新: 内部では電流(u)を保持するため、クリップ後の電流値に合わせて更新
-        u_clipped = torque / self._torque_const
-        self._e_prev = e.clone()
+        u_clipped = torque_motor/ self._torque_const
+        self._e_prev = e_motor.clone()
         self._u_prev = u_clipped.clone()
 
     def reset(self, env_ids: torch.Tensor) -> None:

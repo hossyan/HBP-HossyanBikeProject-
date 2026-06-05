@@ -56,6 +56,7 @@ float stick_right_x = 0.0;
 
 float obs[3] = {0.0, 0.0, 0.0};
 float action = 0.0;
+float action_scale = 4.0;
 float pre_time = 0.0;
 
 // 関数プロトタイプ
@@ -209,7 +210,7 @@ void loop() {
 
     // cybergearへのコマンド送信
     control_position(FRONT_MOTOR_ID, front_motor_target);
-    velocity_type_pid_control(-action, -back_motor_spd, dt);
+    velocity_type_pid_control(-action * action_scale, -back_motor_spd, dt);
     if(!start_flag){
         back_motor_target = 0.0f;
     }

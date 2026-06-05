@@ -199,7 +199,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=roll_exceeded,
             params={
                 "accel_sensor_name": ACCEL,
-                "limit_rad": math.radians(40.0),
+                "limit_rad": math.radians(10.0),
             },
         ),
         "time_out": TerminationTermCfg(
@@ -241,7 +241,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             mode="reset",
             params={
                 "pose_range": {
-                    "roll": (math.radians(-2.0), math.radians(2.0)),
+                    "roll": (math.radians(-4.0), math.radians(4.0)),
                 },
                 "velocity_range": {
                     "roll": (-0.2, 0.2),  # [rad/s]
