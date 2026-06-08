@@ -35,7 +35,8 @@ unsigned char buf[8];
 #define CONTROL_MODE_CUR      3
 
 // --- 制御目標値 ---
-float front_motor_target = 0.01745329f; //60degree in radian
+float front_motor_target = 60 * M_PI / 180.0f; //60degree in radian
+float offset_pos = 0.0f;
 float back_motor_target = 0.0f;  //A
 
 float pre_error = 0.0f;
@@ -57,7 +58,8 @@ float stick_right_x = 0.0;
 float obs[3] = {0.0, 0.0, 0.0};
 float action = 0.0;
 float action_scale = 4.0;
-float pre_time = 0.0;
+float pre_policy_time = 0.0;
+float pre_pid_time = 0.0;
 
 // 関数プロトタイプ
 void init_can();
@@ -111,10 +113,30 @@ void setup() {
     enable_motor(BACK_MOTOR_ID);
     delay(100);
 
+    while (true) {
+        if (CAN0.checkReceive() == CAN_MSGAVAIL) {        
+            CAN0.readMsgBuf(&rxId, &len, buf); 
+
+            uint32_t cleanId = rxId & 0x1FFFFFFF;
+            uint8_t source_motor_id = (cleanId >> 8) & 0xFF;
+            uint8_t mode = (cleanId >> 24) & 0x1F;
+
+            if (mode == 0x02 && source_motor_id == FRONT_MOTOR_ID) {
+                uint16_t pos_raw = (buf[0] << 8) | buf[1];
+                offset_pos = uint_to_float(pos_raw, -12.5f, 12.5f, 16);
+                break;
+            }
+        }
+    delay(1);
+}
+
     // 初期モード設定
     change_mode(FRONT_MOTOR_ID, CONTROL_MODE_POS);
     change_mode(BACK_MOTOR_ID, CONTROL_MODE_CUR);
 }
+
+float dt1 = 0.0f;
+float dt2 = 0.0f;
 
 void loop() {
     M5.update();
@@ -202,19 +224,26 @@ void loop() {
     obs[2] = -back_motor_spd / 2;
 
     // --- policy ---
-    if(millis() - pre_time >= 10){
-        action = policy_infer(obs);
-        pre_time = millis();
-        Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f\n", obs[0], obs[1], obs[2], action);
+    if ( millis() - pre_policy_time >= 10) {
+        dt2 = (millis() - pre_policy_time);
+        action = policy_infer(obs) * action_scale;
+        // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f\n", obs[0], obs[1], obs[2], action);
+        pre_policy_time = millis();
     }
 
     // cybergearへのコマンド送信
-    control_position(FRONT_MOTOR_ID, front_motor_target);
-    velocity_type_pid_control(-action * action_scale, -back_motor_spd, dt);
+    control_position(FRONT_MOTOR_ID, front_motor_target + offset_pos);
     if(!start_flag){
-        back_motor_target = 0.0f;
+        action = 0.0f;
     }
-    control_current(BACK_MOTOR_ID, back_motor_target);
+
+    if (millis() - pre_pid_time >= 2) {
+        dt1 = (millis() - pre_pid_time);
+        velocity_type_pid_control(action, -back_motor_spd, dt);
+        pre_pid_time = millis();
+    }
+    control_current(BACK_MOTOR_ID, -back_motor_target);
+    Serial.printf("dt:%f, dt:%f\n", dt2, dt1);
 }
 
 // --- 専用制御関数 ---
