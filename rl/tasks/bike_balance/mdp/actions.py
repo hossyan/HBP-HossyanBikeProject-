@@ -50,6 +50,8 @@ class VelocityPiActionTermCfg(ActionTermCfg):
     ki_nominal: float = 0.5
     max_torque: float = 12.0     # 関節トルク上限 [Nm]
     torque_constant: float = 0.615  # モータのトルク定数 [Nm/A]
+    vel_noise_std: float = 0.0
+    torque_noise_std: float = 0.0
 
     def build(self, env) -> VelocityPiActionTerm:
         return VelocityPiActionTerm(self, env)
@@ -141,6 +143,7 @@ class VelocityPiActionTerm(ActionTerm):
 
         # 関節速度誤差
         current_vel_joint_motor = current_vel_joint_wheel * self._gear
+        current_vel_joint_motor = current_vel_joint_motor + torch.randn_like(current_vel_joint_motor) * self.cfg.vel_noise_std
         e_motor = self._target_vel - current_vel_joint_motor
         # e_wheel = self._target_vel - current_vel_joint
         # e_motor = e_wheel * self._gear
@@ -155,6 +158,7 @@ class VelocityPiActionTerm(ActionTerm):
         # 電流出力(u) -> トルクに変換してクランプ
         torque_motor = u * self._torque_const
         torque_motor = torch.clamp(torque_motor, -self.cfg.max_torque, self.cfg.max_torque)
+        torque_motor = torque_motor + torch.randn_like(torque_motor) * self.cfg.torque_noise_std
         torque_wheel = torque_motor * self._gear
 
         # MuJoCo に関節トルクを渡す

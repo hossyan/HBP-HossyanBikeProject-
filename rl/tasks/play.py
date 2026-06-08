@@ -7,7 +7,7 @@ Examples:
     python tools/play_bike.py --agent random --viewer native
     python tools/play_bike.py --agent zero --viewer headless --steps 500
 
-    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log10/model_1999.pt
+    python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log12/model_1999.pt
     python rl/tasks/play.py --checkpoint rl/tasks/logs/bike_balance/log6/model_1999.pt --record --steps 1000 --output rl/rollout.mp4
 """
 
@@ -102,7 +102,7 @@ class EnvWrapper:
     def step(self, actions: torch.Tensor):
         obs_np    = self._obs_dict["actor"][0].cpu().numpy()
         action_np = actions[0].cpu().numpy()
-        print(f"[obs: {np.rad2deg(obs_np[0])} | action: {action_np}")
+        print(f"[obs: {obs_np} | action: {action_np}")
 
         self._obs_dict, _, terminated, truncated, _ = self.env.step(actions)
         if terminated.any() or truncated.any():

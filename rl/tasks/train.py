@@ -67,7 +67,7 @@ def main():
     env     = ManagerBasedRlEnv(cfg=env_cfg, device=device)
     vec_env = RslRlVecEnvWrapper(env)
 
-    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log11")
+    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log12")
 
     runner = MjlabOnPolicyRunner(
         env=vec_env,

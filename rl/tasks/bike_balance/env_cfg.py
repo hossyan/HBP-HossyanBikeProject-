@@ -144,6 +144,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             kp_nominal=0.48,
             ki_nominal=0.0086,
             max_torque=12.0,
+            # vel_noise_std=0.01,
+            torque_noise_std=0.01,
         ),
         # fork: position アクチュエータ（位置制御）
         # 現在は60degで固定のためコメントアウト
@@ -273,8 +275,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             mode="reset",
             params={
                 "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
-                "alpha_range": (-0.05, 0.05), # 質量密度のlog10スケール,original * e^(2α)
-                "t_range": (-0.01, 0.01), #1cmのずれ
+                "alpha_range": (-0.05, 0.05), # 質量密度のlog10スケール,original * e^(2α) 0.05は10.5%誤差
+                "t_range": (-0.03, 0.03), #3cmのずれ
             },
         ),
         "back_tire_gain": EventTermCfg(
