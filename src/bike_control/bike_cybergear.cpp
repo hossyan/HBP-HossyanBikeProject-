@@ -67,6 +67,7 @@ volatile float policy_action = 0.0;               // タスク間共有action
 portMUX_TYPE policy_mux = portMUX_INITIALIZER_UNLOCKED; // ミューテックス
 
 TaskHandle_t policyTaskHandle = NULL;
+#define POLICY_INTERVAL_MS 10
 
 // 関数プロトタイプ
 void init_can();
@@ -102,26 +103,24 @@ float filtered_gy = 0.0;
 float filtered_gz = 0.0;
 
 void policyTask(void *pvParameters) {
-    // Core 0 で動作
     float local_obs[3];
+    TickType_t xLastWakeTime = xTaskGetTickCount(); // 起動時刻を記録
     
     for (;;) {
-        // obsをコピー（クリティカルセクション）
         portENTER_CRITICAL(&policy_mux);
         local_obs[0] = policy_obs[0];
         local_obs[1] = policy_obs[1];
         local_obs[2] = policy_obs[2];
         portEXIT_CRITICAL(&policy_mux);
 
-        // policy計算（重い処理）
         float result = policy_infer(local_obs) * action_scale;
 
-        // 結果を書き戻す
         portENTER_CRITICAL(&policy_mux);
         policy_action = result;
         portEXIT_CRITICAL(&policy_mux);
 
-        vTaskDelay(pdMS_TO_TICKS(10)); // 10ms周期
+        // 「前回起床時刻 + 10ms」まで待つ → 計算時間を差し引いた分だけ待機
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(POLICY_INTERVAL_MS));
     }
 }
 
