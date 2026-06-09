@@ -57,9 +57,23 @@ float stick_right_x = 0.0;
 
 float obs[3] = {0.0, 0.0, 0.0};
 float action = 0.0;
-float action_scale = 4.0;
-float pre_policy_time = 0.0;
-float pre_pid_time = 0.0;
+float action_scale = 8.0;
+unsigned long pre_pid_time = 0.0;
+
+// 角度推定　センサーフィルタリング用
+Madgwick filter;
+unsigned long microsPerReading, microsPre;
+unsigned long microsPre_rl = 0.0;
+unsigned long microsPre_pid = 0.0;
+float accelScale, gyroScale;
+
+float ax,ay,az;
+float gx,gy,gz;
+unsigned long microsNow;
+
+float filtered_gx = 0.0;
+float filtered_gy = 0.0;
+float filtered_gz = 0.0;
 
 // --- マルチコア用 ---
 volatile float policy_obs[3] = {0.0, 0.0, 0.0};  // タスク間共有obs
@@ -67,7 +81,7 @@ volatile float policy_action = 0.0;               // タスク間共有action
 portMUX_TYPE policy_mux = portMUX_INITIALIZER_UNLOCKED; // ミューテックス
 
 TaskHandle_t policyTaskHandle = NULL;
-#define POLICY_INTERVAL_MS 10
+#define POLICY_INTERVAL_MS 15
 
 // 関数プロトタイプ
 void init_can();
@@ -88,22 +102,9 @@ float uint_to_float(uint16_t x, float x_min, float x_max, int bits) {
     return (float)x * span / ((1 << bits) - 1) + offset;
 }
 
-Madgwick filter;
-unsigned long microsPerReading, microsPre;
-unsigned long microsPre_rl = 0.0;
-unsigned long microsPre_pid = 0.0;
-float accelScale, gyroScale;
-
-float ax,ay,az;
-float gx,gy,gz;
-unsigned long microsNow;
-
-float filtered_gx = 0.0;
-float filtered_gy = 0.0;
-float filtered_gz = 0.0;
-
 void policyTask(void *pvParameters) {
     float local_obs[3];
+    float local_action = 0.0f;
     TickType_t xLastWakeTime = xTaskGetTickCount(); // 起動時刻を記録
     
     for (;;) {
@@ -111,15 +112,12 @@ void policyTask(void *pvParameters) {
         local_obs[0] = policy_obs[0];
         local_obs[1] = policy_obs[1];
         local_obs[2] = policy_obs[2];
+        policy_action = local_action; 
         portEXIT_CRITICAL(&policy_mux);
 
-        float result = policy_infer(local_obs) * action_scale;
+        local_action = policy_infer(local_obs) * action_scale;
 
-        portENTER_CRITICAL(&policy_mux);
-        policy_action = result;
-        portEXIT_CRITICAL(&policy_mux);
-
-        // 「前回起床時刻 + 10ms」まで待つ → 計算時間を差し引いた分だけ待機
+        vTaskDelay(1); 
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(POLICY_INTERVAL_MS));
     }
 }
@@ -143,7 +141,9 @@ void setup() {
     enable_motor(BACK_MOTOR_ID);
     delay(100);
 
+    unsigned long timeout = millis();
     while (true) {
+        if (millis() - timeout > 3000) break; 
         if (CAN0.checkReceive() == CAN_MSGAVAIL) {        
             CAN0.readMsgBuf(&rxId, &len, buf); 
 
@@ -256,19 +256,6 @@ void loop() {
         }
     }
 
-    // // --- observation ---
-    // obs[0] = -roll_rad;
-    // obs[1] = -filtered_gx;
-    // obs[2] = -back_motor_spd / 2;
-
-    // // --- policy ---
-    // if ( millis() - pre_policy_time >= 10) {
-    //     dt2 = (millis() - pre_policy_time);
-    //     action = policy_infer(obs) * action_scale;
-    //     // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f\n", obs[0], obs[1], obs[2], action);
-    //     pre_policy_time = millis();
-    // }
-
     // --- observation ---
     // policy_obsを更新（クリティカルセクション）
     portENTER_CRITICAL(&policy_mux);
@@ -286,12 +273,14 @@ void loop() {
     control_position(FRONT_MOTOR_ID, front_motor_target + offset_pos);
     if(!start_flag){
         action = 0.0f;
+        back_motor_target = 0.0f;
     }
 
     if (micros() - pre_pid_time >= 2000) { // 2ms
         float dt_pid = (micros() - pre_pid_time) / 1000000.0f;
         velocity_type_pid_control(action, -back_motor_spd, dt_pid);
         control_current(BACK_MOTOR_ID, -back_motor_target);
+        // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f | target_current: %.3f\n", policy_obs[0], policy_obs[1], policy_obs[2], action, back_motor_target);
         pre_pid_time = micros();
     }
 }
@@ -354,7 +343,7 @@ void velocity_type_pid_control(float target, float actual, float dt) {
     float prop = error - pre_error;
     float deriv = prop - pre_prop;
     integral += error;
-    float du = kp_vel * prop + ki_vel * error + kd_vel * deriv / dt;
+    float du = kp_vel * prop + ki_vel * error * dt + kd_vel * deriv;
     pre_error = error;
     pre_prop = prop;
     output += du;

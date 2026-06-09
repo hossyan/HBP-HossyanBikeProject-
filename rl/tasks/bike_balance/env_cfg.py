@@ -308,7 +308,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 timestep=0.001,   # 物理ステップ: 1ms
             ),
         ),
-        decimation=10,            # ポリシー周期: 1ms × 10 = 10ms (100Hz)
+        decimation=15,            # ポリシー周期: 1ms × 10 = 10ms (100Hz)
         episode_length_s=50.0,
     )
 
