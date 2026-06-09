@@ -145,7 +145,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             ki_nominal=0.0086,
             max_current=23.0,
             # vel_noise_std=0.01,
-            torque_noise_std=0.1,
+            torque_noise_std=0.15,
             pid_interval_min=2,
             pid_interval_max=4,
         ),
@@ -189,7 +189,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         ),
         "action_rate": RewardTermCfg(
             func=mdp_rewards.action_rate_l2,
-            weight=-0.001,
+            weight=-0.01,
         ),
         "is_terminated": RewardTermCfg(
             func=mdp_rewards.is_terminated,
@@ -268,7 +268,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=dr.geom_friction,
             params={
                 "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
-                "ranges": (0.7, 1.0),
+                "ranges": (0.5, 1.0),
                 "operation": "abs", # absは直接代入する値,scaleは倍率,addはデフォルト値に足す量
             },
         ),
