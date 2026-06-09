@@ -278,9 +278,9 @@ void loop() {
 
     if (micros() - pre_pid_time >= 2000) { // 2ms
         float dt_pid = (micros() - pre_pid_time) / 1000000.0f;
-        velocity_type_pid_control(action, -back_motor_spd, dt_pid);
-        control_current(BACK_MOTOR_ID, -back_motor_target);
-        // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f | target_current: %.3f\n", policy_obs[0], policy_obs[1], policy_obs[2], action, back_motor_target);
+        velocity_type_pid_control(-action*1.05, -back_motor_spd, dt_pid);
+        control_current(BACK_MOTOR_ID, back_motor_target);
+        Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f | target_current: %.3f\n", policy_obs[0], policy_obs[1], policy_obs[2], action, back_motor_target);
         pre_pid_time = micros();
     }
 }
