@@ -61,6 +61,14 @@ float action_scale = 4.0;
 float pre_policy_time = 0.0;
 float pre_pid_time = 0.0;
 
+// --- マルチコア用 ---
+volatile float policy_obs[3] = {0.0, 0.0, 0.0};  // タスク間共有obs
+volatile float policy_action = 0.0;               // タスク間共有action
+portMUX_TYPE policy_mux = portMUX_INITIALIZER_UNLOCKED; // ミューテックス
+
+TaskHandle_t policyTaskHandle = NULL;
+#define POLICY_INTERVAL_MS 10
+
 // 関数プロトタイプ
 void init_can();
 void enable_motor(uint8_t motor_id);
@@ -93,6 +101,28 @@ unsigned long microsNow;
 float filtered_gx = 0.0;
 float filtered_gy = 0.0;
 float filtered_gz = 0.0;
+
+void policyTask(void *pvParameters) {
+    float local_obs[3];
+    TickType_t xLastWakeTime = xTaskGetTickCount(); // 起動時刻を記録
+    
+    for (;;) {
+        portENTER_CRITICAL(&policy_mux);
+        local_obs[0] = policy_obs[0];
+        local_obs[1] = policy_obs[1];
+        local_obs[2] = policy_obs[2];
+        portEXIT_CRITICAL(&policy_mux);
+
+        float result = policy_infer(local_obs) * action_scale;
+
+        portENTER_CRITICAL(&policy_mux);
+        policy_action = result;
+        portEXIT_CRITICAL(&policy_mux);
+
+        // 「前回起床時刻 + 10ms」まで待つ → 計算時間を差し引いた分だけ待機
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(POLICY_INTERVAL_MS));
+    }
+}
 
 void setup() {
     auto cfg = M5.config();
@@ -133,10 +163,18 @@ void setup() {
     // 初期モード設定
     change_mode(FRONT_MOTOR_ID, CONTROL_MODE_POS);
     change_mode(BACK_MOTOR_ID, CONTROL_MODE_CUR);
-}
 
-float dt1 = 0.0f;
-float dt2 = 0.0f;
+    // Core 0 でpolicyタスクを起動
+    xTaskCreatePinnedToCore(
+        policyTask,        // タスク関数
+        "PolicyTask",      // タスク名
+        8192,              // スタックサイズ（policy_inferの重さに応じて調整）
+        NULL,              // 引数
+        1,                 // 優先度
+        &policyTaskHandle, // ハンドル
+        0                  // Core 0 を指定
+    );
+}
 
 void loop() {
     M5.update();
@@ -218,18 +256,31 @@ void loop() {
         }
     }
 
-    // --- observation ---
-    obs[0] = -roll_rad;
-    obs[1] = -filtered_gx;
-    obs[2] = -back_motor_spd / 2;
+    // // --- observation ---
+    // obs[0] = -roll_rad;
+    // obs[1] = -filtered_gx;
+    // obs[2] = -back_motor_spd / 2;
 
-    // --- policy ---
-    if ( millis() - pre_policy_time >= 10) {
-        dt2 = (millis() - pre_policy_time);
-        action = policy_infer(obs) * action_scale;
-        // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f\n", obs[0], obs[1], obs[2], action);
-        pre_policy_time = millis();
-    }
+    // // --- policy ---
+    // if ( millis() - pre_policy_time >= 10) {
+    //     dt2 = (millis() - pre_policy_time);
+    //     action = policy_infer(obs) * action_scale;
+    //     // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f\n", obs[0], obs[1], obs[2], action);
+    //     pre_policy_time = millis();
+    // }
+
+    // --- observation ---
+    // policy_obsを更新（クリティカルセクション）
+    portENTER_CRITICAL(&policy_mux);
+    policy_obs[0] = -roll_rad;
+    policy_obs[1] = -filtered_gx;
+    policy_obs[2] = -back_motor_spd / 2;
+    portEXIT_CRITICAL(&policy_mux);
+
+    // --- policy結果を読み出す ---
+    portENTER_CRITICAL(&policy_mux);
+    action = policy_action;
+    portEXIT_CRITICAL(&policy_mux);
 
     // cybergearへのコマンド送信
     control_position(FRONT_MOTOR_ID, front_motor_target + offset_pos);
@@ -237,13 +288,12 @@ void loop() {
         action = 0.0f;
     }
 
-    if (millis() - pre_pid_time >= 2) {
-        dt1 = (millis() - pre_pid_time);
-        velocity_type_pid_control(action, -back_motor_spd, dt);
-        pre_pid_time = millis();
+    if (micros() - pre_pid_time >= 2000) { // 2ms
+        float dt_pid = (micros() - pre_pid_time) / 1000000.0f;
+        velocity_type_pid_control(action, -back_motor_spd, dt_pid);
+        control_current(BACK_MOTOR_ID, -back_motor_target);
+        pre_pid_time = micros();
     }
-    control_current(BACK_MOTOR_ID, -back_motor_target);
-    Serial.printf("dt:%f, dt:%f\n", dt2, dt1);
 }
 
 // --- 専用制御関数 ---
