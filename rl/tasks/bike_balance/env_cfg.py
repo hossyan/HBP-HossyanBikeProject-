@@ -71,7 +71,7 @@ _BIKE_ARTICULATION = EntityArticulationInfoCfg(
 _BIKE_INIT = EntityCfg.InitialStateCfg(
     joint_pos={
         "back_tire_pitch": 0.0,
-        "fork_yaw": math.radians(60),
+        "fork_yaw": math.radians(45),
     },
     joint_vel={".*": 0.0},
 )
@@ -109,19 +109,19 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             },
             # history_length=2,
             # flatten_history_dim=True,
-            noise=GaussianNoiseCfg(mean=0.0, std=0.01),  # [rad]
+            noise=GaussianNoiseCfg(mean=0.0, std=0.03),  # [rad]
         ),
         "body_roll_vel": ObservationTermCfg(
             func=RollRateObservation,
             params={
                 "gyro_sensor_name": GYRO,
             },
-            noise=GaussianNoiseCfg(mean=0.0, std=0.01),   # [rad/s]
+            noise=GaussianNoiseCfg(mean=0.0, std=0.03),   # [rad/s]
         ),
         "back_tire_vel": ObservationTermCfg(
             func=joint_vel_rel,
             params={"asset_cfg": back_tire_cfg},
-            noise=GaussianNoiseCfg(mean=0.0, std=0.01),   # [rad/s]
+            noise=GaussianNoiseCfg(mean=0.0, std=0.05),   # [rad/s]
         ),
     }
 
@@ -145,7 +145,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             ki_nominal=0.0086,
             max_current=23.0,
             # vel_noise_std=0.01,
-            torque_noise_std=0.05,
+            torque_noise_std=0.1,
             pid_interval_min=2,
             pid_interval_max=4,
         ),
@@ -234,7 +234,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=set_joint_position_target,
             mode="reset",
             params={
-                "target_position": math.radians(60),
+                "target_position": math.radians(45),
                 "asset_cfg": SceneEntityCfg("bike", joint_names=("fork_yaw",)),
             },
         ),

@@ -35,7 +35,7 @@ unsigned char buf[8];
 #define CONTROL_MODE_CUR      3
 
 // --- 制御目標値 ---
-float front_motor_target = 60 * M_PI / 180.0f; //60degree in radian
+float front_motor_target = 45 * M_PI / 180.0f; //60degree in radian
 float offset_pos = 0.0f;
 float back_motor_target = 0.0f;  //A
 
