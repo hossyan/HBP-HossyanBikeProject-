@@ -141,8 +141,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             entity_name="bike",
             actuator_names=("back_tire_pitch",),
             scale=8.0,
-            kp_nominal=0.48,
-            ki_nominal=0.0086,
+            kp_nominal=1.05,
+            ki_nominal=2.54,
             max_current=23.0,
             # vel_noise_std=0.01,
             torque_noise_std=0.15,
@@ -268,7 +268,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=dr.geom_friction,
             params={
                 "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
-                "ranges": (0.5, 1.0),
+                "ranges": (0.3, 0.7),
                 "operation": "abs", # absは直接代入する値,scaleは倍率,addはデフォルト値に足す量
             },
         ),
