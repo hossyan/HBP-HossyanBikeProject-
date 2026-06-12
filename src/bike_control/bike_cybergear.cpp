@@ -76,6 +76,8 @@ float filtered_gx = 0.0;
 float filtered_gy = 0.0;
 float filtered_gz = 0.0;
 
+float filtered_back_motor_spd = 0.0f;
+
 // --- マルチコア用 ---
 volatile float policy_obs[3] = {0.0, 0.0, 0.0};  // タスク間共有obs
 volatile float policy_action = 0.0;               // タスク間共有action
@@ -260,18 +262,26 @@ void loop() {
         }
     }
 
+    float alpha_spd = 0.8f;
+    filtered_back_motor_spd = back_motor_spd * alpha_spd + filtered_back_motor_spd * (1 - alpha_spd);
+
     // --- observation ---
     // policy_obsを更新（クリティカルセクション）
     portENTER_CRITICAL(&policy_mux);
     policy_obs[0] = -roll_rad;
     policy_obs[1] = -filtered_gx;
-    policy_obs[2] = -back_motor_spd / 2;
+    policy_obs[2] = -filtered_back_motor_spd / 2;
     portEXIT_CRITICAL(&policy_mux);
 
     // --- policy結果を読み出す ---
     portENTER_CRITICAL(&policy_mux);
     action = policy_action;
     portEXIT_CRITICAL(&policy_mux);
+
+    Serial.printf(">roll_rad:%f\n", -roll_rad);
+    Serial.printf(">roll_rad/s:%f\n", -filtered_gx);
+    Serial.printf(">spd:%f\n", -filtered_back_motor_spd/2);
+    Serial.printf(">action:%f\n", action);
 
     // cybergearへのコマンド送信
     control_position(FRONT_MOTOR_ID, front_motor_target + offset_pos);
@@ -282,12 +292,11 @@ void loop() {
 
     if (micros() - pre_pid_time >= 2000) { // 2ms
         float dt_pid = (micros() - pre_pid_time) / 1000000.0f;
-        velocity_type_pid_control(-action, -back_motor_spd, dt_pid);
-        control_current(BACK_MOTOR_ID, -back_motor_target);
+        velocity_type_pid_control(-action, back_motor_spd, dt_pid);
+        control_current(BACK_MOTOR_ID, back_motor_target);
         // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f | target_current: %.3f\n", policy_obs[0], policy_obs[1], policy_obs[2], action, back_motor_target);
         pre_pid_time = micros();
     }
-    Serial.printf("%f\n", back_motor_spd);
 }
 
 // --- 専用制御関数 ---
