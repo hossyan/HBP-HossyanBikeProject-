@@ -1,6 +1,7 @@
 // #include <M5Unified.h>
 // #include <mcp_can.h>
 // #include <SPI.h>
+// #include <PS4Controller.h>
 
 // // --- ピン・ハードウェア設定 ---
 // #define CAN0_INT 15
@@ -35,9 +36,16 @@
 // // --- 制御目標値 (テスト用) ---
 // float target_position = 1.57f; // 90度
 // float target_velocity = 2.0f;   // 2 rad/s
-// float target_current  = 0.3f;   // 0.3 A
+// float target_current  = 0.7f;   // 0.7 A
 
-// int current_mode = CONTROL_MODE_SPD; // デフォルトモード
+// int current_mode = CONTROL_MODE_CUR; // デフォルトモード
+
+// // コントローラ
+// bool start_flag = false;
+// bool circle_prev = false;
+
+// // センサー値
+// float current_velocity = 0.0f;
 
 // // 関数プロトタイプ
 // void init_can();
@@ -66,16 +74,18 @@
 //     M5.Lcd.println("CyberGear Unified Control");
 //     M5.Lcd.println("Touch to switch Mode (1->2->3)");
 
+//     PS4.begin("08:F9:E0:F5:E7:D6");
+
 //     init_can();
 //     delay(1000);
 
 //     enable_motor(MOTOR1_ID);
-//     enable_motor(MOTOR2_ID);
+//     // enable_motor(MOTOR2_ID);
 //     delay(100);
 
 //     // 初期モード設定
 //     change_mode(MOTOR1_ID, current_mode);
-//     change_mode(MOTOR2_ID, current_mode);
+//     // change_mode(MOTOR2_ID, current_mode);
 // }
 
 // void loop() {
@@ -86,22 +96,27 @@
 //     M5.Lcd.printf("Current Mode: %d\n", current_mode);
 
 //     // 指が触れている間だけ各モードの目標値を送信
-//     if (M5.Touch.getCount() > 0) {
-//         control_velocity(MOTOR1_ID, target_velocity);
-//         control_velocity(MOTOR2_ID, target_velocity);
-//         switch (current_mode) {
-//             // case CONTROL_MODE_POS: control_position(MOTOR1_ID, target_position); control_position(MOTOR2_ID, target_position); break;
-//             // case CONTROL_MODE_SPD: control_velocity(MOTOR1_ID, target_velocity); control_velocity(MOTOR2_ID, target_velocity); break;
-//             // case CONTROL_MODE_CUR: control_current(MOTOR1_ID, target_current);   control_current(MOTOR2_ID, target_current);   break;
-//         }
+//     if (start_flag) {
+//         control_current(MOTOR1_ID, target_current);
+//         // control_velocity(MOTOR2_ID, target_velocity);
 //     } else {
 //         // 離している時は停止/原点復帰
-//         control_velocity(MOTOR1_ID, 0.0f);
-//         control_velocity(MOTOR2_ID, 0.0f);
-//         switch (current_mode) {
-//             // case CONTROL_MODE_POS: control_position(MOTOR1_ID, 0.0f); control_position(MOTOR2_ID, 0.0f); break;
-//             // case CONTROL_MODE_SPD: control_velocity(MOTOR1_ID, 0.0f); control_velocity(MOTOR2_ID, 0.0f); break;
-//             // case CONTROL_MODE_CUR: control_current(MOTOR1_ID, 0.0f);  control_current(MOTOR2_ID, 0.0f);  break;
+//         control_current(MOTOR1_ID, 0.0f);
+//     }
+
+//     if (PS4.isConnected()) {
+//         bool circle_now = PS4.Circle();
+//         if (circle_now && !circle_prev) {
+//             if(!start_flag) {
+//                 target_current = -target_current; // 目標電流の符号を反転
+//             }
+//             start_flag = !start_flag;
+//         }
+//         circle_prev = circle_now;
+//         // PSボタンで切断
+//         if (PS4.PSButton()) {
+//             start_flag = false;
+//             ESP.restart();  // M5Stack自体を再起動、BT接続も切れる
 //         }
 //     }
 
@@ -122,11 +137,14 @@
 //             float current_spd = uint_to_float(spd_raw, -45.0f, 45.0f, 16);
 //             float current_trq = uint_to_float(trq_raw, -12.0f, 12.0f, 16);
 
-//             Serial.printf("MotorID: 0x%02X | Pos: %6.2f rad | Spd: %6.2f rad/s | Trq: %6.2f Nm\n", 
-//                           source_motor_id, current_pos, current_spd, current_trq);
+//             current_velocity = current_spd;
+
+//             // Serial.printf("MotorID: 0x%02X | Pos: %6.2f rad | Spd: %6.2f rad/s | Trq: %6.2f Nm\n", 
+//             //               source_motor_id, current_pos, current_spd, current_trq);
 //         }
 //     }
 
+//     Serial.printf("%f\n", current_velocity);
 
 //     delay(1); 
 // }

@@ -35,7 +35,7 @@ unsigned char buf[8];
 #define CONTROL_MODE_CUR      3
 
 // --- 制御目標値 ---
-float front_motor_target = 45 * M_PI / 180.0f; //60degree in radian
+float front_motor_target = 45 * M_PI / 180.0f; //45degree in radian
 float offset_pos = 0.0f;
 float back_motor_target = 0.0f;  //A
 
@@ -46,14 +46,15 @@ float output = 0.0f;
 float u_min = -23.0f;
 float u_max = 23.0f;
 
-float kp_vel = 0.48f;
-float ki_vel = 0.00086f;
+float kp_vel = 1.05f;
+float ki_vel = 2.54f;
 float kd_vel = 0.0f;
 
 bool start_flag = false;
 bool circle_prev = false;
 float stick_left_y = 0.0; 
 float stick_right_x = 0.0; 
+float target_velocity = 2.0f;
 
 float obs[3] = {0.0, 0.0, 0.0};
 float action = 0.0;
@@ -231,6 +232,9 @@ void loop() {
     if (PS4.isConnected()) {
         bool circle_now = PS4.Circle();
         if (circle_now && !circle_prev) { 
+            if(!start_flag) {
+                target_velocity = -target_velocity; // 目標速度の符号を反転
+            }
             start_flag = !start_flag;
         }
         circle_prev = circle_now;
@@ -278,11 +282,12 @@ void loop() {
 
     if (micros() - pre_pid_time >= 2000) { // 2ms
         float dt_pid = (micros() - pre_pid_time) / 1000000.0f;
-        velocity_type_pid_control(-action*1.05, -back_motor_spd, dt_pid);
-        control_current(BACK_MOTOR_ID, back_motor_target);
-        Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f | target_current: %.3f\n", policy_obs[0], policy_obs[1], policy_obs[2], action, back_motor_target);
+        velocity_type_pid_control(-action, -back_motor_spd, dt_pid);
+        control_current(BACK_MOTOR_ID, -back_motor_target);
+        // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f | target_current: %.3f\n", policy_obs[0], policy_obs[1], policy_obs[2], action, back_motor_target);
         pre_pid_time = micros();
     }
+    Serial.printf("%f\n", back_motor_spd);
 }
 
 // --- 専用制御関数 ---

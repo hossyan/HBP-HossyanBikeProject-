@@ -11,8 +11,7 @@
 // unsigned char buf[8];
 
 // // --- モーター基本設定 ---
-// #define MOTOR1_ID  0x7F
-// #define MOTOR2_ID  0x7F
+// #define MOTOR_ID  0x7F
 // #define MASTER_ID 0x00
 
 // // --- CyberGear 通信モード (拡張ID上位5bit) ---
@@ -56,8 +55,11 @@
 // float u_max = 30.0;
 
 // // ゲイン管理 (初期値を設定しておく)
-// float kp_vel = 0.48f;
-// float ki_vel = 0.00086f;
+// // float kp_vel = 0.48f;
+// // float ki_vel = 0.00086f;
+// // float kd_vel = 0.00f;
+// float kp_vel = 1.05f;
+// float ki_vel = 2.54f;
 // float kd_vel = 0.00f;
 
 // // 読み取り値格納用
@@ -97,16 +99,16 @@
 //     delay(500);
 
 //     // マニュアルの指示通り「停止 -> モード変更 -> 有効化」の順で行う
-//     stop_motor(MOTOR2_ID);
+//     stop_motor(MOTOR_ID);
 //     delay(100);
     
-//     change_mode(MOTOR2_ID, current_mode);
+//     change_mode(MOTOR_ID, current_mode);
 //     delay(100);
 
-//     set_zero_position(MOTOR2_ID);
+//     set_zero_position(MOTOR_ID);
 //     delay(100);
 
-//     enable_motor(MOTOR2_ID);
+//     enable_motor(MOTOR_ID);
 //     delay(100);
     
 //     Serial.println("Setup Completed.");
@@ -120,7 +122,7 @@
 
 //     if (is_touched && !is_running) {
 //         is_running = true;
-//         target_velocity = 4;
+//         target_velocity = -1;
 //         Serial.println("Status: RUNNING");
 //     } 
 //     else if (!is_touched && is_running) {
@@ -137,8 +139,8 @@
 //         switch (c) {
 //             case 'q': kp_vel += 0.01f; break;
 //             case 'a': kp_vel -= 0.01f; break;
-//             case 'w': ki_vel += 0.00001f; break;
-//             case 's': ki_vel -= 0.00001f; break;
+//             case 'w': ki_vel += 0.01f; break;
+//             case 's': ki_vel -= 0.01f; break;
 //             case 'e': kd_vel += 0.001f; break;
 //             case 'd': kd_vel -= 0.001f; break;
 //         }
@@ -168,11 +170,11 @@
 //         }
 //     }
 
-//     if(millis() - pre_time_10 > 10) {
-//         float dt = (millis() - pre_time_10) / 1000;
+//     if(micros() - pre_time_10 > 2000) {
+//         float dt = (micros() - pre_time_10) / 1000000.0f;
 //         velocity_type_pid_control(target_velocity, spd, dt);
-//         pre_time_10 = millis();
-//         control_current(MOTOR2_ID, target_current);
+//         pre_time_10 = micros();
+//         control_current(MOTOR_ID, target_current);
 
 //         // Serial.print(">vel:");
 //         // Serial.println(spd);
@@ -184,13 +186,16 @@
 //         // Serial.println(ki_vel);
 //         // Serial.print(">kd:");
 //         // Serial.println(kd_vel);
-//         // Serial.printf("%f,%f,%f,%f,%f,%f,%f\n", kp_vel,ki_vel,kd_vel,target_velocity,target_current,spd,trq);
-//         Serial.printf("%f,%f\n", spd,target_current);
+//         // Serial.printf("%f,%f,%f,%f,%f,%f,%f\n", kp_vel,ki_vel,kd_vel,target_velocity,target_current,spd,dt);
+//         // Serial.printf("%f\n", dt);
+//         // Serial.printf("%f,%f\n", spd,target_current);
 //     }
 
 //     // --- 4. 100ms周期でのデータ要求とシリアル出力 ---
-//     // if (millis() - pre_time_100 > 100) {
-//     // }
+//     if (millis() - pre_time_100 > 10) {
+//         Serial.printf("spd: %6.3f rad/s | target: %6.4f A | kp_vel: %f | ki_vel: %f | kd_vel: %f\n", spd, target_current, kp_vel, ki_vel, kd_vel);
+//         pre_time_100 = millis();
+//     }
 // }
 
 
@@ -268,9 +273,9 @@
 //     float prop = error - pre_error;
 //     float deriv = prop - pre_prop;
 //     integral += error;
-//     float du = kp_vel * prop + ki_vel * error + kd_vel * deriv;
+//     float du = kp_vel * prop + ki_vel * error * dt + kd_vel * deriv;
 //     pre_error = error;
 //     pre_prop = prop;
 //     output += du;
-//     target_current = constrain(output, -23.0f, 23.0f);
+//     target_current = constrain(output, u_min, u_max);
 // }
