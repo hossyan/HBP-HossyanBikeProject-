@@ -129,10 +129,10 @@
 //         uint32_t now = micros();
 //         if (now - pre_time > 1000){
 //             float t = (now - start_time) / 1000000.0;
-//             float f = 10.0;
+//             float f = 4.0;
 //             float A = 2.0;
-//             // float torque = A * (sin(2*M_PI*f*t) + 0.6*sin(2*M_PI*3.4*f*t) + 0.3*sin(2*M_PI*7.4*f*t));
-//             float torque = A * sin(2*M_PI*f*t);
+//             float torque = A * (sin(2*M_PI*f*t) + 0.6*sin(2*M_PI*3.4*f*t) + 0.3*sin(2*M_PI*7.4*f*t));
+//             // float torque = A * sin(2*M_PI*f*t);
 //             target_current = torque / 0.615;
 
 //             // dataLogにセンサーデータを格納

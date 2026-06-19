@@ -36,13 +36,14 @@
 // // --- 制御目標値 (テスト用) ---
 // float target_position = 1.57f; // 90度
 // float target_velocity = 2.0f;   // 2 rad/s
-// float target_current  = 0.7f;   // 0.7 A
+// float target_current  = 0.0f;   // 0.7 A
 
 // int current_mode = CONTROL_MODE_CUR; // デフォルトモード
 
 // // コントローラ
 // bool start_flag = false;
 // bool circle_prev = false;
+// bool triangle_prev = false;
 
 // // センサー値
 // float current_velocity = 0.0f;
@@ -107,12 +108,22 @@
 //     if (PS4.isConnected()) {
 //         bool circle_now = PS4.Circle();
 //         if (circle_now && !circle_prev) {
-//             if(!start_flag) {
-//                 target_current = -target_current; // 目標電流の符号を反転
-//             }
-//             start_flag = !start_flag;
+//                 target_current += 0.01; // 目標電流の符号を反転
 //         }
 //         circle_prev = circle_now;
+//         bool triangle_now = PS4.Triangle();
+//         if (triangle_now && !triangle_prev) {
+//                 target_current -= 0.01; // 目標電流の符号を反転
+//         }
+//         triangle_prev = triangle_now;
+
+//         bool cross_now = PS4.Cross();
+//         if (cross_now) {
+//             start_flag = true;
+//         } else {
+//             start_flag = false;
+//         }
+
 //         // PSボタンで切断
 //         if (PS4.PSButton()) {
 //             start_flag = false;
@@ -144,9 +155,11 @@
 //         }
 //     }
 
-//     Serial.printf("%f\n", current_velocity);
+//     float now = micros() / 1000000.0f;
+//     // Serial.printf("%f,%f\n", now, current_velocity);
+//     Serial.printf("%f\n", target_current);
 
-//     delay(1); 
+//     // delay(1); 
 // }
 
 // // --- ID指定対応：専用制御関数 ---
