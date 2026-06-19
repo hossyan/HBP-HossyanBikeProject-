@@ -34,7 +34,7 @@
         <joint name="back_tire_pitch" type="hinge" pos="0 0 0" axis="0 -1 0" limited="false" frictionloss="0.27675" damping="5.0e-5" armature="0.0105"/>
         <inertial pos="-0 -4.273e-3 -0" mass="0.923928" diaginertia="0.007352292526 0.01090125389 0.007352292526" />
         <!-- <geom class="visual" type="mesh" mesh="back_tire"/> -->
-        <geom type="mesh" mesh="back_tire" group="0"/>
+        <geom type="mesh" mesh="back_tire" group="0" solref="0.008 1.2" solimp="0.9 0.99 0.001 0.5 2"/>
       </body>
 
       <!-- fork -->
@@ -48,7 +48,7 @@
           <joint name="front_tire_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false"  damping="1.0e-6"/>
           <inertial pos=".0 .0 .0" mass="0.749780" diaginertia="0.005349419022 0.008289292138 0.005349419022" />
           <!-- <geom class="visual" type="mesh" mesh="front_tire"/> -->
-          <geom type="mesh" mesh="front_tire" group="0" />
+          <geom type="mesh" mesh="front_tire" group="0" solref="0.008 1.2" solimp="0.9 0.99 0.001 0.5 2"/>
         </body>
       </body> 
     </body>

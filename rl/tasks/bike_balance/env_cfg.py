@@ -289,6 +289,45 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "ki_range": (0.00516, 0.01204), # 0.0084±40%
             }
         ),
+            # frictionloss（転がり抵抗の模擬）
+        "tire_frictionloss": EventTermCfg(
+            func=dr.joint_friction,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "bike",
+                    joint_names=("back_tire_pitch", "front_tire_pitch"),
+                ),
+                "ranges": (0.8, 1.2),
+                "operation": "scale",  # デフォルト値の0.8〜1.2倍
+            },
+        ),
+        # damping
+        "tire_damping": EventTermCfg(
+            func=dr.joint_damping,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "bike",
+                    joint_names=("back_tire_pitch", "front_tire_pitch"),
+                ),
+                "ranges": (0.8, 1.2),
+                "operation": "scale",
+            },
+        ),
+            # armature（ロータ慣性）
+        "tire_armature": EventTermCfg(
+            func=dr.joint_armature,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "bike",
+                    joint_names=("back_tire_pitch",),  # 駆動輪のみ
+                ),
+                "ranges": (0.8, 1.2),
+                "operation": "scale",
+            },
+        ),
     }
 
     return ManagerBasedRlEnvCfg(
