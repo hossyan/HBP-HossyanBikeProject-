@@ -107,8 +107,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "gyro_sensor_name":  GYRO,
                 "alpha": 0.98,
             },
-            # history_length=2,
-            # flatten_history_dim=True,
+            history_length=4,
+            flatten_history_dim=True,
             noise=GaussianNoiseCfg(mean=0.0, std=0.03),  # [rad]
         ),
         "body_roll_vel": ObservationTermCfg(
@@ -116,11 +116,15 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             params={
                 "gyro_sensor_name": GYRO,
             },
+            history_length=2,
+            flatten_history_dim=True,
             noise=GaussianNoiseCfg(mean=0.0, std=0.03),   # [rad/s]
         ),
         "back_tire_vel": ObservationTermCfg(
             func=joint_vel_rel,
             params={"asset_cfg": back_tire_cfg},
+            history_length=4,
+            flatten_history_dim=True,
             noise=GaussianNoiseCfg(mean=0.0, std=0.05),   # [rad/s]
         ),
     }
@@ -193,7 +197,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         ),
         "is_terminated": RewardTermCfg(
             func=mdp_rewards.is_terminated,
-            weight=-1000,
+            weight=-10000,
         ),
     }
 

@@ -4,7 +4,7 @@ export_model_to_header.py
 学習済みの .pt ファイルから ESP32 向けの .h / .cpp を生成する。
 
 使い方:
-    python rl/tasks/export_model_to_header.py --checkpoint rl/tasks/logs/bike_balance/log20/model_1999.pt
+    python rl/tasks/export_model_to_header.py --checkpoint rl/tasks/logs/bike_balance/log20_dualactor2/model_1999.pt
     python export_model_to_header.py --checkpoint logs/bike-balance/model_499.pt --obs-dim 3 --act-dim 1
 
 出力:
