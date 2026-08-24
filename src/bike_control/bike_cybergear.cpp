@@ -39,6 +39,8 @@ float front_motor_target = 45 * M_PI / 180.0f; //45degree in radian
 float offset_pos = 0.0f;
 float back_motor_target = 0.0f;  //A
 
+
+// ここまでコピーした
 float pre_error = 0.0f;
 float pre_prop = 0.0f;
 float integral = 0.0f;
@@ -280,10 +282,10 @@ void loop() {
 
     action = constrain(action, -action_scale, action_scale);
 
-    Serial.printf(">roll_rad:%f\n", -roll_rad);
-    Serial.printf(">roll_rad/s:%f\n", -filtered_gx);
-    Serial.printf(">spd:%f\n", -back_motor_spd/2);
-    Serial.printf(">action:%f\n", action);
+    // Serial.printf(">roll_rad:%f\n", -roll_rad);
+    // Serial.printf(">roll_rad/s:%f\n", -filtered_gx);
+    // Serial.printf(">spd:%f\n", -back_motor_spd/2);
+    // Serial.printf(">action:%f\n", action);
     // Serial.printf(">current:%f\n", back_motor_target);
 
     // cybergearへのコマンド送信
@@ -300,6 +302,8 @@ void loop() {
         // Serial.printf("obs: %.3f, %.3f, %.3f | action: %.3f | target_current: %.3f\n", policy_obs[0], policy_obs[1], policy_obs[2], action, back_motor_target);
         pre_pid_time = micros();
     }
+
+    
 }
 
 // --- 専用制御関数 ---
