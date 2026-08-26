@@ -1,5 +1,6 @@
 #include <M5Unified.h>
 #include <mcp_can.h>
+#include <SPI.h>
 #include <MadgwickAHRS.h>
 #include <PS4Controller.h>
 
@@ -9,6 +10,11 @@ float ax, ay, az;
 float gx, gy, gz;
 const float sampleRate = 100.0f;
 float roll = 0.0f;
+float roll_rad = 0.0f;
+
+float gx_rad = 0.0f;
+float filtered_gx = 0.0f;
+float alpha = 0.8f; // フィルタ係数
 
 // --- ピン・ハードウェア設定 ---
 #define CAN0_INT 15
@@ -31,7 +37,7 @@ unsigned char buf[8];
 // --- CyberGear 内部レジスタインデックス ---
 #define INDEX_RUN_MODE        0x7005 // 1:位置, 2:速度, 3:電流
 #define INDEX_TARGET_POS      0x7016 // 目標位置 (float, rad)
-#define INDEX_TARGET_SPD      0x7017 // 目標速度 (float, rad/s)
+#define INDEX_TARGET_SPD      0x700A // 目標速度 (float, rad/s)
 #define INDEX_TARGET_CUR      0x7006 // 目標電流 (float, A)
 
 // --- モード定義 ---
@@ -40,21 +46,37 @@ unsigned char buf[8];
 #define CONTROL_MODE_CUR      3
 
 // --- 制御目標値 ---
-float front_motor_target = 45 * M_PI / 180.0f; //45degree in radian
+float front_motor_target = 60 * M_PI / 180.0f; //60degree in radian
 float offset_pos = 0.0f;
 float back_motor_target = 0.0f;  //A
 
 bool power_on = false;
 
+float target_state[3] = {-0.04f, 0.0f, 0.0f};
+
 float kp = 0.00;
 float ki = 0.00;
 float kd = 0.00;
-float kp_inc = 0.001;
+float kp_inc = 0.2;
 float ki_inc = 0.001;
 float kd_inc = 0.001;
-float output = 0.0f;
 
-//  関数群
+float output = 0.0f;
+float u_min = -23.0f;
+float u_max = 23.0f;
+
+float speed_max = 30.0f; // rad/s
+
+//  関数プロトタイプ
+void init_can();
+void enable_motor(uint8_t motor_id);
+void set_zero_position(uint8_t motor_id);
+void send_parameter_write(uint8_t motor_id, uint16_t param_index, float value, uint8_t is_byte = 0);
+void control_position(uint8_t motor_id, float rad);
+void control_current(uint8_t motor_id, float ampere);
+void control_velocity(uint8_t motor_id, float rad_s);
+void change_mode(uint8_t motor_id, uint8_t mode);
+float uint_to_float(uint16_t x, float x_min, float x_max, int bits);
 
 struct TaskTimer {
     unsigned long last_time = 0;
@@ -93,19 +115,47 @@ void setup() {
     M5.Imu.begin();
     Serial.begin(115200);
     filter.begin(sampleRate); // サンプルレートを設定
-
     PS4.begin("08:F9:E0:F5:E7:D6");
+    init_can();
+    delay(100);
 
     microsPerReading = 1000000 / sampleRate;
     microsPre = micros();
 
     M5.Display.setTextSize(3);
+
+    // モーターの初期化
+    enable_motor(FRONT_MOTOR_ID);
+    enable_motor(BACK_MOTOR_ID);
+    delay(100);
+
+    unsigned long timeout = millis();
+    while (true) {
+        if (millis() - timeout > 3000) break; 
+        if (CAN0.checkReceive() == CAN_MSGAVAIL) {        
+            CAN0.readMsgBuf(&rxId, &len, buf); 
+
+            uint32_t cleanId = rxId & 0x1FFFFFFF;
+            uint8_t source_motor_id = (cleanId >> 8) & 0xFF;
+            uint8_t mode = (cleanId >> 24) & 0x1F;
+
+            if (mode == 0x02 && source_motor_id == FRONT_MOTOR_ID) {
+                uint16_t pos_raw = (buf[0] << 8) | buf[1];
+                offset_pos = uint_to_float(pos_raw, -12.5f, 12.5f, 16);
+                break;
+            }
+        }
+        delay(1);
+    }
+
+    change_mode(FRONT_MOTOR_ID, CONTROL_MODE_POS);
+    change_mode(BACK_MOTOR_ID, CONTROL_MODE_SPD);
 }
 
-float pre_now = 0.0f;
 void loop() {
     M5.update();
 
+    // IMUの更新
     unsigned long microsNow = micros();
     if (microsNow - microsPre >= microsPerReading) {
         M5.Imu.getAccelData(&ax, &ay, &az);
@@ -113,6 +163,35 @@ void loop() {
         filter.updateIMU(gx, gy, gz, ax, ay, az);
         roll = filter.getRoll();
         microsPre = microsNow;
+
+        roll_rad = roll * (M_PI / 180.0f);
+        gx_rad = gx * (M_PI / 180.0f);
+
+        filtered_gx = alpha * gx_rad + (1 - alpha) * filtered_gx; // 低域フィルタリング
+    }
+
+    // cybergearの角度・角速度取得
+    float front_motor_pos, front_motor_spd;
+    float back_motor_pos, back_motor_spd;
+    while(CAN0.checkReceive() == CAN_MSGAVAIL) {
+        CAN0.readMsgBuf(&rxId, &len, buf); 
+        uint32_t cleanId = rxId & 0x1FFFFFFF;
+        uint8_t source_motor_id = (cleanId >> 8) & 0xFF;
+        uint8_t mode = (cleanId >> 24) & 0x1F;
+
+        if (mode == 0x02) { // フィードバックフレーム
+            uint16_t pos_raw = (buf[0] << 8) | buf[1];
+            uint16_t spd_raw = (buf[2] << 8) | buf[3];
+            uint16_t trq_raw = (buf[4] << 8) | buf[5];
+
+            if (source_motor_id == FRONT_MOTOR_ID) {
+                front_motor_pos = uint_to_float(pos_raw, -12.5f, 12.5f, 16);
+                front_motor_spd = uint_to_float(spd_raw, -30.0f, 30.0f, 16);
+            } else if (source_motor_id == BACK_MOTOR_ID) {
+                back_motor_pos = uint_to_float(pos_raw, -12.5f, 12.5f, 16);
+                back_motor_spd = uint_to_float(spd_raw, -30.0f, 30.0f, 16);
+            }
+        }
     }
 
     // PS4コントローラの入力処理
@@ -151,13 +230,90 @@ void loop() {
 
             M5.Display.setCursor(0, 10);
             M5.Display.printf("Power: %d\n", power_on);
-            M5.Display.printf("Roll: %6.2f\n", roll);
+            M5.Display.printf("Roll: %6.2f\n", roll_rad);
             M5.Display.printf("Kp: %6.3f\n", kp);
             M5.Display.printf("Ki: %6.3f\n", ki);
             M5.Display.printf("Kd: %6.3f\n", kd);
-            M5.Display.printf("Output: %6.2f\n", output); 
+            M5.Display.printf("Output: %6.3f\n", output); 
+            M5.Display.printf("motor: %6.3f\n", output * speed_max);
         }
     }
+
+    // フィードバック制御
+    float roll_error = roll_rad - target_state[0];
+    float roll_velocity_error = filtered_gx - target_state[1];
+    float wheel_velocity_error = back_motor_spd - target_state[2];
+    output = -kp * roll_error - ki * roll_velocity_error - kd * wheel_velocity_error;
+    if (output > 1) output = 1;
+    if (output < -1) output = -1;
+    back_motor_target = output * speed_max; // 目標速度を設定（最大30rad/s）
+    back_motor_target = kp;
+    if (!power_on) {
+        back_motor_target = 0.0f;
+    }
+
+    // cybergearの制御
+    control_position(FRONT_MOTOR_ID, front_motor_target + offset_pos);
+    control_velocity(BACK_MOTOR_ID, back_motor_target);
+
+    Serial.printf(">SPD:");
+    Serial.println(back_motor_spd);
+}
+
+void init_can() {
+    if(CAN0.begin(MCP_ANY, CAN_1000KBPS, MCP_8MHZ) == CAN_OK) {
+        CAN0.setMode(MCP_NORMAL);
+    } else {
+        while(1) delay(10);
+    }
+}
+
+void enable_motor(uint8_t motor_id) {
+    uint32_t id = ((uint32_t)MODE_MOTOR_ENABLE << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
+    uint8_t dummy[8] = {0};
+    CAN0.sendMsgBuf(id, 1, 0, dummy);
+}
+
+void set_zero_position(uint8_t motor_id) {
+    uint32_t id = ((uint32_t)MODE_SET_ZERO_POS << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
+    uint8_t dummy[8] = {0};
+    CAN0.sendMsgBuf(id, 1, 8, dummy);
+}
+
+void send_parameter_write(uint8_t motor_id, uint16_t param_index, float value, uint8_t is_byte) {
+    uint32_t id = ((uint32_t)MODE_PARAM_WRITE << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
+    uint8_t data[8] = {0};
     
- 
+    data[0] = param_index & 0xFF;
+    data[1] = (param_index >> 8) & 0xFF;
+
+    if (is_byte) {
+        data[4] = (uint8_t)value;
+    } else {
+        memcpy(&data[4], &value, 4);
+    }
+    CAN0.sendMsgBuf(id, 1, 8, data);
+}
+
+void control_position(uint8_t motor_id, float rad) {
+    send_parameter_write(motor_id, INDEX_TARGET_POS, rad, 0);
+}
+
+void control_current(uint8_t motor_id, float ampere) {
+    send_parameter_write(motor_id, INDEX_TARGET_CUR, ampere, 0);
+}
+
+void control_velocity(uint8_t motor_id, float rad_s) {
+    send_parameter_write(motor_id, INDEX_TARGET_SPD, rad_s, 0);
+}
+
+void change_mode(uint8_t motor_id, uint8_t mode) {
+    send_parameter_write(motor_id, INDEX_RUN_MODE, (float)mode, 1);
+    delay(50);
+}
+
+float uint_to_float(uint16_t x, float x_min, float x_max, int bits) {
+    float span = x_max - x_min;
+    float offset = x_min;
+    return (float)x * span / ((1 << bits) - 1) + offset;
 }

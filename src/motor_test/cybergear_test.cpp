@@ -38,7 +38,7 @@
 // float target_velocity = 2.0f;   // 2 rad/s
 // float target_current  = 0.0f;   // 0.7 A
 
-// int current_mode = CONTROL_MODE_CUR; // デフォルトモード
+// int current_mode = CONTROL_MODE_SPD; // デフォルトモード
 
 // // コントローラ
 // bool start_flag = false;
@@ -80,8 +80,8 @@
 //     init_can();
 //     delay(1000);
 
+//     enable_motor(MOTOR2_ID);
 //     enable_motor(MOTOR1_ID);
-//     // enable_motor(MOTOR2_ID);
 //     delay(100);
 
 //     // 初期モード設定
@@ -98,11 +98,11 @@
 
 //     // 指が触れている間だけ各モードの目標値を送信
 //     if (start_flag) {
-//         control_current(MOTOR1_ID, target_current);
+//         control_velocity(MOTOR1_ID, target_velocity);
 //         // control_velocity(MOTOR2_ID, target_velocity);
 //     } else {
 //         // 離している時は停止/原点復帰
-//         control_current(MOTOR1_ID, 0.0f);
+//         control_velocity(MOTOR1_ID, 0.0f);
 //     }
 
 //     if (PS4.isConnected()) {
@@ -150,14 +150,14 @@
 
 //             current_velocity = current_spd;
 
-//             // Serial.printf("MotorID: 0x%02X | Pos: %6.2f rad | Spd: %6.2f rad/s | Trq: %6.2f Nm\n", 
-//             //               source_motor_id, current_pos, current_spd, current_trq);
+//             Serial.printf("MotorID: 0x%02X | Pos: %6.2f rad | Spd: %6.2f rad/s | Trq: %6.2f Nm\n", 
+//                           source_motor_id, current_pos, current_spd, current_trq);
 //         }
 //     }
 
 //     float now = micros() / 1000000.0f;
-//     // Serial.printf("%f,%f\n", now, current_velocity);
-//     Serial.printf("%f\n", target_current);
+//     // Serial.printf("%f,%f\n", target_current, current_velocity);
+//     // Serial.printf("%f\n", current_velocity);
 
 //     // delay(1); 
 // }
