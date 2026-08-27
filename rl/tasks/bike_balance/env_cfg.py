@@ -69,9 +69,9 @@ _BIKE_ARTICULATION = EntityArticulationInfoCfg(
 )
 
 _BIKE_INIT = EntityCfg.InitialStateCfg(
-    joint_pos={
+    joint_pos={ 
         "back_tire_pitch": 0.0,
-        "fork_yaw": math.radians(45),
+        "fork_yaw": math.radians(60),
     },
     joint_vel={".*": 0.0},
 )
@@ -107,9 +107,9 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "gyro_sensor_name":  GYRO,
                 "alpha": 0.98,
             },
-            history_length=4,
+            history_length=3,
             flatten_history_dim=True,
-            noise=GaussianNoiseCfg(mean=0.0, std=0.03),  # [rad]
+            noise=GaussianNoiseCfg(mean=0.0, std=0.005),  # [rad]
         ),
         "body_roll_vel": ObservationTermCfg(
             func=RollRateObservation,
@@ -118,12 +118,12 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             },
             history_length=2,
             flatten_history_dim=True,
-            noise=GaussianNoiseCfg(mean=0.0, std=0.03),   # [rad/s]
+            noise=GaussianNoiseCfg(mean=0.0, std=0.01),   # [rad/s]
         ),
         "back_tire_vel": ObservationTermCfg(
             func=joint_vel_rel,
             params={"asset_cfg": back_tire_cfg},
-            history_length=4,
+            history_length=2,
             flatten_history_dim=True,
             noise=GaussianNoiseCfg(mean=0.0, std=0.05),   # [rad/s]
         ),
@@ -131,7 +131,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
 
     observations = {
         "actor":  ObservationGroupCfg(actor_terms, enable_corruption=True),
-        "critic": ObservationGroupCfg({**actor_terms}, enable_corruption=False),
+        "critic": ObservationGroupCfg({**actor_terms}, enable_corruption=True),
     }
 
     # ── Actions ─────────────────────────────────────────────────────
@@ -144,14 +144,12 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         "back_tire_motor": VelocityPiActionTermCfg(
             entity_name="bike",
             actuator_names=("back_tire_pitch",),
-            scale=8.0,
-            kp_nominal=1.05,
-            ki_nominal=2.54,
+            scale=10.0,
+            kp_nominal=11.5,
+            ki_nominal=15.8,
             max_current=23.0,
             # vel_noise_std=0.01,
             torque_noise_std=0.15,
-            pid_interval_min=2,
-            pid_interval_max=4,
         ),
         # fork: position アクチュエータ（位置制御）
         # 現在は60degで固定のためコメントアウト
@@ -203,17 +201,17 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
 
     # ── Terminations ────────────────────────────────────────────────
     terminations = {
-        "roll_exceeded": TerminationTermCfg(
-            func=roll_exceeded,
-            params={
-                "accel_sensor_name": ACCEL,
-                "limit_rad": math.radians(10.0),
-            },
-        ),
-        "time_out": TerminationTermCfg(
-            func=time_out,
-            time_out=True,
-        ),
+        # "roll_exceeded": TerminationTermCfg(
+        #     func=roll_exceeded,
+        #     params={
+        #         "accel_sensor_name": ACCEL,
+        #         "limit_rad": math.radians(10.0),
+        #     },
+        # ),
+        # "time_out": TerminationTermCfg(
+        #     func=time_out,
+        #     time_out=True,
+        # ),
     }
 
     # ── Events ──────────────────────────────────────────────────────
@@ -238,7 +236,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=set_joint_position_target,
             mode="reset",
             params={
-                "target_position": math.radians(45),
+                "target_position": math.radians(60),
                 "asset_cfg": SceneEntityCfg("bike", joint_names=("fork_yaw",)),
             },
         ),
@@ -285,14 +283,14 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "t_range": (-0.015, 0.015), #3cmのずれ
             },
         ),
-        "back_tire_gain": EventTermCfg(
-            func=randomize_pid_gains,
-            mode="reset",
-            params={
-                "kp_range": (0.288, 0.672), # 0.48±40%
-                "ki_range": (0.00516, 0.01204), # 0.0084±40%
-            }
-        ),
+        # "back_tire_gain": EventTermCfg(
+        #     func=randomize_pid_gains,
+        #     mode="reset",
+        #     params={
+        #         "kp_range": (0.288, 0.672), # 0.48±40%
+        #         "ki_range": (0.00516, 0.01204), # 0.0084±40%
+        #     }
+        # ),
             # frictionloss（転がり抵抗の模擬）
         "tire_frictionloss": EventTermCfg(
             func=dr.joint_friction,
@@ -349,6 +347,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         sim=SimulationCfg(
             mujoco=MujocoCfg(
                 timestep=0.001,   # 物理ステップ: 1ms
+                # disableflags=("contact",), 
             ),
         ),
         decimation=15,            # ポリシー周期: 1ms × 10 = 10ms (100Hz)
