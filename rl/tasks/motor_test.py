@@ -11,27 +11,132 @@ import random
 
 # keyboard入力
 class SharedTarget:
-    """スレッド間で安全に target_velocity を共有するためのコンテナ。"""
+    """スレッド間で安全に target_velocity を共有するためのコンテナ。
 
-    def __init__(self, initial: float):
+    通常の手動目標値(_value)に加えて、矩形波(bang-bang)成分を重畳できる。
+    矩形波OFFのときの挙動は従来と完全に同一。
+
+        出力 = _value + (矩形波ON ? ±amplitude : 0)
+
+    位相は tick_and_get() が呼ばれるたびに1制御ステップ進む。
+    """
+
+    def __init__(
+        self,
+        initial: float,
+        square_amplitude: float = 0.5,
+        square_period_us: int = 20000,
+        control_step_us: int = 10000,
+        square_enabled: bool = False,
+    ):
         self._lock = threading.Lock()
         self._value = initial
 
+        # --- 矩形波関連 ---
+        self._sq_amplitude = square_amplitude
+        self._sq_control_step_us = control_step_us
+        self._sq_half_period_steps = 1
+        self._sq_period_us = square_period_us
+        self._sq_on = square_enabled
+        self._sq_phase = 0      # 現在の半周期内で経過した制御ステップ数
+        self._sq_sign = 1.0     # +1 から開始
+        self._output = initial  # 直近に出力した指令値(ログ用キャッシュ)
+
+        self._recompute_half_period_locked()
+
+    # ------------------------------------------------------------
+    # 内部ヘルパー(ロック取得済みの状態で呼ぶこと)
+    # ------------------------------------------------------------
+    def _recompute_half_period_locked(self) -> None:
+        half_us = self._sq_period_us / 2.0
+        steps = half_us / self._sq_control_step_us
+        self._sq_half_period_steps = max(1, int(round(steps)))
+
+        actual_period_us = self._sq_half_period_steps * 2 * self._sq_control_step_us
+        if actual_period_us != self._sq_period_us:
+            print(
+                f"[square] 警告: 周期 {self._sq_period_us} us は制御ステップ "
+                f"{self._sq_control_step_us} us の2の倍数ではありません。"
+                f" 実際の周期は {actual_period_us} us に丸められます。"
+            )
+
+    # ------------------------------------------------------------
+    # 既存API(挙動は変更なし。get() は直近の出力値を返す)
+    # ------------------------------------------------------------
     def get(self) -> float:
+        """直近に tick_and_get() が返した指令値を返す(位相は進めない)。
+
+        矩形波OFF時は _value と一致するため、従来の挙動と同じ。
+        """
         with self._lock:
-            return self._value
+            return self._output
 
     def set(self, value: float) -> None:
         with self._lock:
             self._value = value
+            if not self._sq_on:
+                self._output = value
 
     def add(self, delta: float) -> float:
         with self._lock:
             self._value += delta
+            if not self._sq_on:
+                self._output = self._value
             return self._value
 
+    # ------------------------------------------------------------
+    # 追加API
+    # ------------------------------------------------------------
+    def get_base(self) -> float:
+        """矩形波成分を含まない、手動操作分のみの目標値。"""
+        with self._lock:
+            return self._value
 
-def _keyboard_listener(shared_target: SharedTarget, step: float = 3.0):
+    def tick_and_get(self) -> float:
+        """位相を1制御ステップ進め、今ステップの指令値を返す。
+
+        act() から1制御ステップにつきちょうど1回だけ呼ぶこと。
+        """
+        with self._lock:
+            if self._sq_on:
+                out = self._value + self._sq_sign * self._sq_amplitude
+                self._sq_phase += 1
+                if self._sq_phase >= self._sq_half_period_steps:
+                    self._sq_phase = 0
+                    self._sq_sign = -self._sq_sign
+            else:
+                out = self._value
+            self._output = out
+            return out
+
+    def toggle_square(self) -> bool:
+        """矩形波のON/OFFを切り替える。ONにした瞬間に位相をリセット(+側から開始)。"""
+        with self._lock:
+            self._sq_on = not self._sq_on
+            self._sq_phase = 0
+            self._sq_sign = 1.0
+            if not self._sq_on:
+                self._output = self._value
+            return self._sq_on
+
+    def set_square_period_us(self, period_us: int) -> None:
+        with self._lock:
+            self._sq_period_us = period_us
+            self._sq_phase = 0
+            self._sq_sign = 1.0
+            self._recompute_half_period_locked()
+
+    def set_square_amplitude(self, amplitude: float) -> None:
+        with self._lock:
+            self._sq_amplitude = amplitude
+
+    def square_info(self) -> tuple[bool, float, int]:
+        with self._lock:
+            actual_period_us = self._sq_half_period_steps * 2 * self._sq_control_step_us
+            return self._sq_on, self._sq_amplitude, actual_period_us
+
+
+def _keyboard_listener(shared_target: SharedTarget, step: float = 5.0):
     """
     別スレッドでキー入力を監視し、shared_target を書き換える。
     Up/Down : ±step
@@ -40,7 +145,7 @@ def _keyboard_listener(shared_target: SharedTarget, step: float = 3.0):
     """
     import keyboard  # pip install keyboard
 
-    print("[keyboard] Up/Down: ±%.2f | Shift+Up/Down: ±%.2f | 0: reset" % (step, step * 5))
+    # print("[keyboard] Up/Down: ±%.2f | Shift+Up/Down: ±%.2f | 0: reset" % (step, step * 5))
 
     def on_up():
         v = shared_target.add(step)
@@ -48,25 +153,42 @@ def _keyboard_listener(shared_target: SharedTarget, step: float = 3.0):
 
     def on_down():
         v = shared_target.add(-step)
-        print(f"[keyboard] target_velocity = {v:.3f}")
+        # print(f"[keyboard] target_velocity = {v:.3f}")
 
     def on_up_big():
         v = shared_target.add(step * 5)
-        print(f"[keyboard] target_velocity = {v:.3f}")
+        # print(f"[keyboard] target_velocity = {v:.3f}")
 
     def on_down_big():
         v = shared_target.add(-step * 5)
-        print(f"[keyboard] target_velocity = {v:.3f}")
+        # print(f"[keyboard] target_velocity = {v:.3f}")
 
     def on_reset():
         shared_target.set(0.0)
-        print("[keyboard] target_velocity reset to 0")
+        # print("[keyboard] target_velocity reset to 0")
+
+    # Enter: 矩形波(バンバン制御)のON/OFFトグル
+    # 押しっぱなしによるオートリピートを避けるため、リリース時に1回だけ発火させる。
+    _last_toggle = [0.0]
+
+    def on_toggle_square():
+        now = time.monotonic()
+        if now - _last_toggle[0] < 0.2:   # チャタリング/リピート対策
+            return
+        _last_toggle[0] = now
+        on = shared_target.toggle_square()
+        _, amp, period_us = shared_target.square_info()
+        # print(
+        #     f"[keyboard] square wave = {'ON' if on else 'OFF'} "
+        #     f"(amplitude=±{amp}, period={period_us} us)"
+        # )
 
     keyboard.add_hotkey("up", on_up)
     keyboard.add_hotkey("down", on_down)
     keyboard.add_hotkey("shift+up", on_up_big)
     keyboard.add_hotkey("shift+down", on_down_big)
     keyboard.add_hotkey("0", on_reset)
+    keyboard.add_hotkey("right", on_toggle_square)
 
     # このスレッドを生かし続ける(daemon threadなのでmain終了時に自動終了)
     keyboard.wait()
@@ -85,6 +207,25 @@ TARGET_VELOCITY = 0.0
 # env_cfg の VelocityPiActionTermCfg と合わせること
 SCALE = 10.0
 GEAR_RATIO = 2.0
+
+# ------------------------------------------------------------
+# 矩形波(バンバン制御)設定
+# ------------------------------------------------------------
+# Enterキーでこの矩形波のON/OFFを切り替える。
+
+# 振幅 [rad/s]。TARGET_MODE と同じ軸で解釈される(手動目標値に加算される)。
+SQUARE_AMPLITUDE = 0.5
+
+# 周期 [us]。1000 us 単位で指定する。
+# 実際の切り替え分解能は制御ステップ(CONTROL_STEP_US)に制限されるため、
+# 半周期 = 周期/2 が CONTROL_STEP_US の整数倍になるように指定すること。
+SQUARE_PERIOD_US = 20000     # 20 ms 周期 = 10 ms ごとに符号反転
+
+# 1制御ステップの長さ [us]。env_cfg の sim.dt * decimation と一致させること。
+CONTROL_STEP_US = 10000      # 10 ms
+
+# 起動直後から矩形波を有効にするか
+SQUARE_START_ENABLED = False
 
 # "native" / "viser" / "headless"
 VIEWER = "native"
@@ -140,7 +281,9 @@ class FixedVelocityAgent:
         import torch
 
         action = torch.zeros(obs.shape[0], self.act_dim, device=obs.device)
-        target_velocity = self.shared_target.get()
+        # tick_and_get() は矩形波の位相を1制御ステップ進めつつ指令値を返す。
+        # 矩形波OFF時は従来の get() と同じ値になる。
+        target_velocity = self.shared_target.tick_and_get()
 
         if self.target_mode == "motor":
             # --- モーター軸側の rad/s を直接指定する場合 ---
@@ -195,7 +338,18 @@ def run_motor_test():
         )
 
     # --- 共有状態を作成し、キーボードリスナーを起動 ---
-    shared_target = SharedTarget(TARGET_VELOCITY)
+    shared_target = SharedTarget(
+        TARGET_VELOCITY,
+        square_amplitude=SQUARE_AMPLITUDE,
+        square_period_us=SQUARE_PERIOD_US,
+        control_step_us=CONTROL_STEP_US,
+        square_enabled=SQUARE_START_ENABLED,
+    )
+    print(
+        f"[motor_test] Square wave     : Enter to toggle "
+        f"(amplitude=±{SQUARE_AMPLITUDE}, period={SQUARE_PERIOD_US} us, "
+        f"control_step={CONTROL_STEP_US} us, start={'ON' if SQUARE_START_ENABLED else 'OFF'})"
+    )
     listener_thread = threading.Thread(
         target=_keyboard_listener, args=(shared_target,), daemon=True
     )
@@ -235,7 +389,7 @@ def profile_apply_actions(term, n_calls: int = 2000, warmup: int = 100):
     times_ms = []
     for _ in range(n_calls):
         term._ev_start.record()
-        term.apply_actions()      # ← ここを外側から挟む。中身は無変更
+        term.apply_actions()      
         term._ev_end.record()
         torch.cuda.synchronize()
         times_ms.append(term._ev_start.elapsed_time(term._ev_end))
@@ -285,18 +439,19 @@ class EnvWrapper:
     def step(self, actions):
         self._obs_dict, _, terminated, truncated, _ = self.env.step(actions)
 
-        # if self._log_every > 0 and self._step_count % self._log_every == 0:
-        #     joint_vel = self.env.scene["bike"].data.joint_vel
-        #     target = self.shared_target.get() if self.shared_target is not None else None
-        #     target = target / 2 
-        #     if self._joint_idx is not None:
-        #         val = joint_vel[0, self._joint_idx].item()
-        #         val_noisy = val + random.gauss(0.0, 0.0487)
-        #         print(f"{self._step_count * 1000:5d},{val * 2:6.4f},{target:2.1f},{val_noisy * 2:6.4f}")
-        #     else:
-        #         print(f"{self._step_count:5d}, target={target}, joint_vel={joint_vel[0].cpu().numpy()}")
+        if self._log_every > 0 and self._step_count % self._log_every == 0:
+            joint_vel = self.env.scene["bike"].data.joint_vel
+            # get() は act() で確定した「今ステップの指令値」を返すので、
+            # 矩形波ONのときもログと実際の指令が必ず一致する。
+            target = self.shared_target.get() if self.shared_target is not None else None
+            if self._joint_idx is not None:
+                val = joint_vel[0, self._joint_idx].item()
+                val_noisy = val + random.gauss(0.0, 0.0287)
+                print(f"{self._step_count * 15:5d}, {target:2.1f}, {val_noisy * 2:6.4f}")
+            else:
+                print(f"{self._step_count:5d}, target={target}, joint_vel={joint_vel[0].cpu().numpy()}")
 
-        # self._step_count += 1
+        self._step_count += 1
 
         if terminated.any() or truncated.any():
             self._obs_dict, _ = self.env.reset()

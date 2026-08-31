@@ -146,10 +146,10 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             actuator_names=("back_tire_pitch",),
             scale=10.0,
             kp_nominal=11.5,
-            ki_nominal=15.8,
+            ki_nominal=237,
             max_current=23.0,
             # vel_noise_std=0.01,
-            torque_noise_std=0.15,
+            torque_noise_std=0.05,
         ),
         # fork: position アクチュエータ（位置制御）
         # 現在は60degで固定のためコメントアウト
@@ -350,7 +350,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 # disableflags=("contact",), 
             ),
         ),
-        decimation=15,            # ポリシー周期: 1ms × 10 = 10ms (100Hz)
+        decimation=10,            # ポリシー周期: 1ms × 10 = 10ms (100Hz)
         episode_length_s=50.0,
     )
 
