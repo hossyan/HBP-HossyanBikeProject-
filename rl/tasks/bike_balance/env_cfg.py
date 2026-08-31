@@ -201,17 +201,17 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
 
     # ── Terminations ────────────────────────────────────────────────
     terminations = {
-        # "roll_exceeded": TerminationTermCfg(
-        #     func=roll_exceeded,
-        #     params={
-        #         "accel_sensor_name": ACCEL,
-        #         "limit_rad": math.radians(10.0),
-        #     },
-        # ),
-        # "time_out": TerminationTermCfg(
-        #     func=time_out,
-        #     time_out=True,
-        # ),
+        "roll_exceeded": TerminationTermCfg(
+            func=roll_exceeded,
+            params={
+                "accel_sensor_name": ACCEL,
+                "limit_rad": math.radians(10.0),
+            },
+        ),
+        "time_out": TerminationTermCfg(
+            func=time_out,
+            time_out=True,
+        ),
     }
 
     # ── Events ──────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 # disableflags=("contact",), 
             ),
         ),
-        decimation=10,            # ポリシー周期: 1ms × 10 = 10ms (100Hz)
+        decimation=15,            # ポリシー周期: 1ms × 10 = 10ms (100Hz)
         episode_length_s=50.0,
     )
 
