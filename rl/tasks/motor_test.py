@@ -136,7 +136,7 @@ class SharedTarget:
             return self._sq_on, self._sq_amplitude, actual_period_us
 
 
-def _keyboard_listener(shared_target: SharedTarget, step: float = 0.2):
+def _keyboard_listener(shared_target: SharedTarget, step: float = 3.0):
     """
     別スレッドでキー入力を監視し、shared_target を書き換える。
     Up/Down : ±step
@@ -214,7 +214,7 @@ GEAR_RATIO = 2.0
 # Enterキーでこの矩形波のON/OFFを切り替える。
 
 # 振幅 [rad/s]。TARGET_MODE と同じ軸で解釈される(手動目標値に加算される)。
-SQUARE_AMPLITUDE = 2.0
+SQUARE_AMPLITUDE = 0.5
 
 # 周期 [us]。1000 us 単位で指定する。
 # 実際の切り替え分解能は制御ステップ(CONTROL_STEP_US)に制限されるため、

@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
-import wandb  # ← 追加
+import wandb  
 
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.envs import ManagerBasedRlEnv
@@ -35,8 +35,8 @@ def main():
     parser.add_argument("--num-envs",    type=int, default=1024)
     parser.add_argument("--gpu-id",      type=int, default=0)
     parser.add_argument("--max-iters",   type=int, default=2000)
-    parser.add_argument("--wandb-project", type=str, default="bike-balance")  # ← 追加
-    parser.add_argument("--run-name",    type=str, default="")                # ← 追加
+    parser.add_argument("--wandb-project", type=str, default="bike-balance")  
+    parser.add_argument("--run-name",    type=str, default="")               
     args = parser.parse_args()
 
     device = f"cuda:{args.gpu_id}" if args.gpu_id >= 0 else "cpu"
@@ -67,7 +67,7 @@ def main():
     env     = ManagerBasedRlEnv(cfg=env_cfg, device=device)
     vec_env = RslRlVecEnvWrapper(env)
 
-    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log23")
+    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log26")
 
     runner = MjlabOnPolicyRunner(
         env=vec_env,
