@@ -34,7 +34,7 @@ def main():
     parser = argparse.ArgumentParser(description="Bike Balance Training")
     parser.add_argument("--num-envs",    type=int, default=1024)
     parser.add_argument("--gpu-id",      type=int, default=0)
-    parser.add_argument("--max-iters",   type=int, default=2000)
+    parser.add_argument("--max-iters",   type=int, default=1001)
     parser.add_argument("--wandb-project", type=str, default="bike-balance")  
     parser.add_argument("--run-name",    type=str, default="")               
     args = parser.parse_args()
@@ -67,7 +67,7 @@ def main():
     env     = ManagerBasedRlEnv(cfg=env_cfg, device=device)
     vec_env = RslRlVecEnvWrapper(env)
 
-    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log26")
+    log_dir = str(Path(__file__).parent / "logs" / rl_cfg.experiment_name / "log1")
 
     runner = MjlabOnPolicyRunner(
         env=vec_env,

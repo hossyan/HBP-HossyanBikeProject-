@@ -136,7 +136,7 @@ class SharedTarget:
             return self._sq_on, self._sq_amplitude, actual_period_us
 
 
-def _keyboard_listener(shared_target: SharedTarget, step: float = 3.0):
+def _keyboard_listener(shared_target: SharedTarget, step: float = 1.0):
     """
     別スレッドでキー入力を監視し、shared_target を書き換える。
     Up/Down : ±step
@@ -205,7 +205,7 @@ TARGET_MODE = "motor"
 TARGET_VELOCITY = 0.0
 
 # env_cfg の VelocityPiActionTermCfg と合わせること
-SCALE = 10.0
+SCALE = 20.0
 GEAR_RATIO = 2.0
 
 # ------------------------------------------------------------

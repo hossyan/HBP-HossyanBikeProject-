@@ -41,7 +41,7 @@ from .mdp import (
     body_roll_reward,
     body_roll_vel_penalty,
     back_tire_vel_penalty,
-    roll_exceeded,
+    body_contact,
     set_joint_position_target,
     VelocityPiActionTermCfg,
     randomize_pid_gains,
@@ -75,6 +75,7 @@ _BIKE_INIT = EntityCfg.InitialStateCfg(
         "fork_yaw": math.radians(45),
     },
     joint_vel={".*": 0.0},
+    # joint_vel={"back_tire_pitch": 1.0,".*": 0.0},
 )
 
 
@@ -98,6 +99,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
     # ── センサー名（エンティティ名/センサー名の形式）─────────────────
     ACCEL = "bike/body_accel"
     GYRO  = "bike/body_gyro"
+    BODY_GROUND = "bike/body_ground"
 
     # ── Observations ────────────────────────────────────────────────
     actor_terms = {
@@ -108,8 +110,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "gyro_sensor_name":  GYRO,
                 "alpha": 0.98,
             },
-            history_length=3,
-            flatten_history_dim=True,
+            # history_length=3,
+            flatten_history_dim=False,
             noise=GaussianNoiseCfg(mean=0.0, std=0.005),  # [rad]
         ),
         "body_roll_vel": ObservationTermCfg(
@@ -117,15 +119,15 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             params={
                 "gyro_sensor_name": GYRO,
             },
-            history_length=2,
-            flatten_history_dim=True,
+            # history_length=2,
+            flatten_history_dim=False,
             noise=GaussianNoiseCfg(mean=0.0, std=0.01),   # [rad/s]
         ),
         "back_tire_vel": ObservationTermCfg(
             func=joint_vel_rel,
             params={"asset_cfg": back_tire_cfg},
-            history_length=2,
-            flatten_history_dim=True,
+            # history_length=2,
+            flatten_history_dim=False,
             noise=GaussianNoiseCfg(mean=0.0, std=0.05),   # [rad/s]
         ),
     }
@@ -140,7 +142,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         "back_tire_motor": JointVelocityActionCfg(
             entity_name="bike",
             actuator_names=("back_tire_pitch",),
-            scale=10.0,             
+            scale=20.0,
+            # offset=1.0,
             use_default_offset=False,
         ),
         # "back_tire_motor": JointEffortActionCfg(
@@ -159,7 +162,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         #     torque_noise_std=0.05,
         # ),
         # fork: position アクチュエータ（位置制御）
-        # 現在は60degで固定のためコメントアウト
+        # 現在は45degで固定のためコメントアウト
         # 動かす場合は JointPositionActionCfg のimportも解除すること
         # "fork_motor": JointPositionActionCfg(
         #     entity_name="bike",
@@ -178,42 +181,41 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "margin": math.radians(10.0),
             },
         ),
-        # "is_alive": RewardTermCfg(
-        #     func=mdp_rewards.is_alive,
-        #     weight=4.0,
-        # ),
-        # "body_roll_vel": RewardTermCfg(
-        #     func=body_roll_vel_penalty,
-        #     weight=-0.1,
-        #     params={
-        #         "gyro_sensor_name": GYRO,
-        #         "margin": 1.0,  # [rad/s]
-        #     },
-        # ),
+        "is_alive": RewardTermCfg(
+            func=mdp_rewards.is_alive,
+            weight=2.0,
+        ),
+        "body_roll_vel": RewardTermCfg(
+            func=body_roll_vel_penalty,
+            weight=-0.1,
+            params={
+                "gyro_sensor_name": GYRO,
+                "margin": 1.0,  # [rad/s]
+            },
+        ),
         # タイヤ速度ペナルティ（必要に応じてコメントアウトを解除）
-        # "back_tire_vel": RewardTermCfg(
-        #     func=back_tire_vel_penalty,
-        #     weight=-0.5,
-        #     params={"asset_cfg": back_tire_cfg, "margin": 5.0},
-        # ),
-        # "action_rate": RewardTermCfg(
-        #     func=mdp_rewards.action_rate_l2,
-        #     weight=-0.01,
-        # ),
-        # "is_terminated": RewardTermCfg(
-        #     func=mdp_rewards.is_terminated,
-        #     weight=-1e3,
-        # ),
+        "back_tire_vel": RewardTermCfg(
+            func=back_tire_vel_penalty,
+            weight=-1.5,
+            params={"asset_cfg": back_tire_cfg, "margin": 1.0},
+        ),
+        "action_rate": RewardTermCfg(
+            func=mdp_rewards.action_rate_l2,
+            weight=-0.01,
+        ),
+        "is_terminated": RewardTermCfg(
+            func=mdp_rewards.is_terminated,
+            weight=-1e3,
+        ),
     }
 
     # ── Terminations ────────────────────────────────────────────────
     terminations = {
-        "roll_exceeded": TerminationTermCfg(
-            func=roll_exceeded,
+        "body_contact": TerminationTermCfg(
+            func=body_contact,
             params={
-                "accel_sensor_name": ACCEL,
-                "limit_rad": math.radians(10.0),
-            },
+                "sensor_name": BODY_GROUND,
+            }
         ),
         "time_out": TerminationTermCfg(
             func=time_out,
@@ -228,7 +230,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=reset_scene_to_default,
             mode="reset",
         ),
-        # fork: 60deg固定（ノイズなし）
+        # fork: 45deg固定（ノイズなし）
         "reset_fork": EventTermCfg(
             func=reset_joints_by_offset,
             mode="reset",
@@ -238,7 +240,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "asset_cfg": SceneEntityCfg("bike", joint_names=("fork_yaw",)),
             },
         ),
-        # forkのpositionアクチュエータ目標を60degに設定
+        # forkのpositionアクチュエータ目標を45degに設定
         "reset_fork_target": EventTermCfg(
             func=set_joint_position_target,
             mode="reset",
@@ -379,7 +381,7 @@ def bike_balance_runner_cfg() -> RslRlOnPolicyRunnerCfg:
             activation="elu",
             distribution_cfg={
                 "class_name": "GaussianDistribution",
-                "init_std": 1.0,
+                "init_std": 0.2,
                 "std_type": "scalar",
             },
         ),

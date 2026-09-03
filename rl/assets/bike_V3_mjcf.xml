@@ -23,6 +23,11 @@
   <worldbody>
     <body name="body" pos=".0 .0 .0">
       <freejoint />
+      <!-- <joint name="root_x"     type="slide" axis="1 0 0" pos="0 0 0"/>
+      <joint name="root_y"     type="slide" axis="0 1 0" pos="0 0 0"/>
+      <joint name="root_z"     type="slide" axis="0 0 1" pos="0 0 0"/>
+      <joint name="root_yaw"   type="hinge" axis="0 0 1" pos="0 0 0"/>
+      <joint name="root_pitch" type="hinge" axis="0 1 0" pos="0 0 0"/> -->
       <inertial pos="-251.337e-3 -1.123e-3 310.924e-3" mass="2.3123167" diaginertia="0.06237483005 0.04698001994 0.03020791479" />
       <!-- <geom class="visual" type="mesh" mesh="body"/> -->
       <!-- <geom type="box" size="0.15 0.05 0.1" pos="0 0 0.15" group="0" /> -->
@@ -34,7 +39,6 @@
         <!-- <joint name="back_tire_pitch" type="hinge" pos="0 0 0" axis="0 -1 0" limited="false" frictionloss="0.27675" damping="5.0e-5" armature="0.015"/> -->
         <joint name="back_tire_pitch" type="hinge" pos="0 0 0" axis="0 -1 0" limited="false" frictionloss="0.27675" damping="5.0e-5" armature="0.105"/>
         <inertial pos="-0 -4.273e-3 -0" mass="0.923928" diaginertia="0.007352292526 0.01090125389 0.007352292526" />
-        <!-- <geom class="visual" type="mesh" mesh="back_tire"/> -->
         <geom type="mesh" mesh="back_tire" group="0" solref="0.008 1.2" solimp="0.9 0.99 0.001 0.5 2"/>
         <!-- <geom type="mesh" mesh="back_tire" group="0" solref="0.008 1.2" solimp="0.9 0.99 0.001 0.5 2" contype="0" conaffinity="0"/> -->
       </body>
@@ -47,7 +51,7 @@
 
         <!-- front_tire -->
         <body name="front_tire" pos=".0 .0 -212.269e-3">
-          <joint name="front_tire_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false"  damping="1.0e-6"/>
+          <joint name="front_tire_pitch" type="hinge" pos="0 0 0" axis="0 1 0" limited="false"  frictionloss="0.01" damping="1.0e-6"/>
           <inertial pos=".0 .0 .0" mass="0.749780" diaginertia="0.005349419022 0.008289292138 0.005349419022" />
           <!-- <geom class="visual" type="mesh" mesh="front_tire"/> -->
           <geom type="mesh" mesh="front_tire" group="0" solref="0.008 1.2" solimp="0.9 0.99 0.001 0.5 2"/>
@@ -62,7 +66,7 @@
           ctrllimited="true" ctrlrange="-12.0 12.0"  /> -->
     <velocity name="back_tire_motor" joint="back_tire_pitch"
           kv="10"
-          ctrllimited="true" ctrlrange="-10.0 10.0" gear="2"
+          ctrllimited="true" ctrlrange="-20.0 20.0" gear="2"
           forcelimited="true" forcerange="-12.0 12.0" />
     <!-- fork -->
     <position name="fork_motor" joint="fork_yaw" gear="1" 
@@ -81,5 +85,6 @@
   <sensor>
     <accelerometer name="body_accel" site="imu_site" />
     <gyro name="body_gyro" site="imu_site" />
+    <contact name="body_ground" body1="body" data="found" num="1"/>
   </sensor>
 </mujoco>
