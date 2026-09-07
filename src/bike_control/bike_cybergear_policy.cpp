@@ -26,7 +26,7 @@ unsigned char buf[8];
 // --- CyberGear 内部レジスタインデックス ---
 #define INDEX_RUN_MODE        0x7005 // 1:位置, 2:速度, 3:電流
 #define INDEX_TARGET_POS      0x7016 // 目標位置 (float, rad)
-#define INDEX_TARGET_SPD      0x7017 // 目標速度 (float, rad/s)
+#define INDEX_TARGET_SPD      0x700A // 目標速度 (float, rad/s)
 #define INDEX_TARGET_CUR      0x7006 // 目標電流 (float, A)
 
 // --- モード定義 ---
@@ -40,9 +40,15 @@ float offset_pos = 0.0f;
 float back_motor_target = 0.0f;  //rad/s
 float speed_max = 30.0f; // rad/s
 
-float obs[3] = {0.0, 0.0, 0.0};
+// rlパラメータ
+float obs[10] = {0.0f};
 float action = 0.0;
 float action_scale = 20.0;
+
+// rlパラメータの履歴
+float angle_hist[3] = {0.0f};
+float gyro_hist[3] = {0.0f};
+float tire_hist[3] = {0.0f};
 
 // 角度推定　センサーフィルタリング用
 Madgwick filter;
@@ -98,6 +104,27 @@ void policyTask(void *pvParameters) {
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(POLICY_INTERVAL_MS));
     }
 }
+
+// rlパラメータがhist付の時
+// void policyTask(void *pvParameters) {
+//     float local_obs[OBS_DIM];
+//     float local_action = 0.0f;
+//     TickType_t xLastWakeTime = xTaskGetTickCount(); // 起動時刻を記録
+    
+//     for (;;) {
+//         portENTER_CRITICAL(&policy_mux);
+//         for (int i = 0; i < OBS_DIM; i++) {
+//             local_obs[i] = policy_obs[i];
+//         }
+//         policy_action = local_action; 
+//         portEXIT_CRITICAL(&policy_mux);
+
+//         local_action = policy_infer(local_obs) * action_scale;
+
+//         vTaskDelay(1); 
+//         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(POLICY_INTERVAL_MS));
+//     }
+// }
 
 struct TaskTimer {
     unsigned long last_time = 0;
@@ -227,19 +254,44 @@ void loop() {
     }
 
     // --- observation ---
+    // 履歴バッファの更新
+    // angle_hist[2] = angle_hist[1];
+    // angle_hist[1] = angle_hist[0]; 
+    // angle_hist[0] = -roll_rad;
+
+    // gyro_hist[2] = gyro_hist[1];
+    // gyro_hist[1] = gyro_hist[0];
+    // gyro_hist[0] = -filtered_gx;
+
+    // tire_hist[2] = tire_hist[1];
+    // tire_hist[1] = tire_hist[0]; 
+    // tire_hist[0] = -back_motor_spd / 2;
+
+    // --- policy_obsの更新 ---
     portENTER_CRITICAL(&policy_mux);
     policy_obs[0] = -roll_rad;
     policy_obs[1] = -filtered_gx;
     policy_obs[2] = -back_motor_spd / 2;
     portEXIT_CRITICAL(&policy_mux);
 
+    // portENTER_CRITICAL(&policy_mux);
+    // policy_obs[0] = angle_hist[0];
+    // policy_obs[1] = angle_hist[1];
+    // policy_obs[2] = angle_hist[2];
+    // policy_obs[3] = gyro_hist[0];
+    // policy_obs[4] = gyro_hist[1]; 
+    // policy_obs[5] = gyro_hist[2];
+    // policy_obs[6] = tire_hist[0];
+    // policy_obs[7] = tire_hist[1];
+    // policy_obs[8] = tire_hist[2];
+    // portEXIT_CRITICAL(&policy_mux);
+
     // --- policy結果を読み出す ---
     portENTER_CRITICAL(&policy_mux);
     action = policy_action;
     portEXIT_CRITICAL(&policy_mux);
 
-    action = constrain(action, -action_scale, action_scale);
-    back_motor_target = constrain(-action, -speed_max, speed_max);
+    back_motor_target = constrain(-action * action_scale, -speed_max, speed_max);
 
     // PS4コントローラの入力処理
     if (PS4.isConnected()) {
@@ -259,7 +311,7 @@ void loop() {
             M5.Display.printf("Roll_vel: %6.2f\n", policy_obs[1]);
             M5.Display.printf("Back_spd: %6.2f\n", policy_obs[2]);
             M5.Display.printf("Action: %6.2f\n", action);
-            M5.Display.printf("Back_target: %6.2f\n", back_motor_target);
+            M5.Display.printf("output: %6.2f\n", back_motor_target);
         }
         back_motor_target = 0.0f; // power_off時はバックモータを停止
     }
@@ -267,8 +319,6 @@ void loop() {
     // cybergearへのコマンド送信
     control_position(FRONT_MOTOR_ID, front_motor_target + offset_pos);
     control_velocity(BACK_MOTOR_ID, back_motor_target);
-
-
 }
 
 void init_can() {
