@@ -43,6 +43,7 @@ from .mdp import (
     back_tire_vel_penalty,
     body_contact,
     set_joint_position_target,
+    randomize_velocity_kv,
     VelocityPiActionTermCfg,
     randomize_pid_gains,
 )
@@ -72,7 +73,7 @@ _BIKE_ARTICULATION = EntityArticulationInfoCfg(
 _BIKE_INIT = EntityCfg.InitialStateCfg(
     joint_pos={ 
         "back_tire_pitch": 0.0,
-        "fork_yaw": math.radians(45),
+        "fork_yaw": math.radians(60),
     },
     joint_vel={".*": 0.0},
     # joint_vel={"back_tire_pitch": 1.0,".*": 0.0},
@@ -162,7 +163,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         #     torque_noise_std=0.05,
         # ),
         # fork: position アクチュエータ（位置制御）
-        # 現在は45degで固定のためコメントアウト
+        # 現在は60degで固定のためコメントアウト
         # 動かす場合は JointPositionActionCfg のimportも解除すること
         # "fork_motor": JointPositionActionCfg(
         #     entity_name="bike",
@@ -196,8 +197,8 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         # タイヤ速度ペナルティ（必要に応じてコメントアウトを解除）
         "back_tire_vel": RewardTermCfg(
             func=back_tire_vel_penalty,
-            weight=-1.5,
-            params={"asset_cfg": back_tire_cfg, "margin": 1.0},
+            weight=-7.0,
+            params={"asset_cfg": back_tire_cfg, "margin": 0.3},
         ),
         "action_rate": RewardTermCfg(
             func=mdp_rewards.action_rate_l2,
@@ -205,7 +206,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         ),
         "is_terminated": RewardTermCfg(
             func=mdp_rewards.is_terminated,
-            weight=-1e3,
+            weight=-1e4,
         ),
     }
 
@@ -230,7 +231,7 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             func=reset_scene_to_default,
             mode="reset",
         ),
-        # fork: 45deg固定（ノイズなし）
+        # fork: 60deg固定（ノイズなし）
         "reset_fork": EventTermCfg(
             func=reset_joints_by_offset,
             mode="reset",
@@ -240,30 +241,30 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
                 "asset_cfg": SceneEntityCfg("bike", joint_names=("fork_yaw",)),
             },
         ),
-        # forkのpositionアクチュエータ目標を45degに設定
+        # forkのpositionアクチュエータ目標を60degに設定
         "reset_fork_target": EventTermCfg(
             func=set_joint_position_target,
             mode="reset",
             params={
-                "target_position": math.radians(45),
+                "target_position": math.radians(60),
                 "asset_cfg": SceneEntityCfg("bike", joint_names=("fork_yaw",)),
             },
         ),
         # ---------- domain randomization ---------------------
         # バイク本体の初期roll角度,角速度
-        # "reset_body_root": EventTermCfg(
-        #     func=reset_root_state_uniform,
-        #     mode="reset",
-        #     params={
-        #         "pose_range": {
-        #             "roll": (math.radians(-2.0), math.radians(2.0)),
-        #         },
-        #         "velocity_range": {
-        #             "roll": (-0.2, 0.2),  # [rad/s]
-        #         },
-        #         "asset_cfg": SceneEntityCfg("bike"),
-        #     }
-        # ),
+        "reset_body_root": EventTermCfg(
+            func=reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {
+                    "roll": (math.radians(-2.0), math.radians(2.0)),
+                },
+                "velocity_range": {
+                    "roll": (-0.2, 0.2),  # [rad/s]
+                },
+                "asset_cfg": SceneEntityCfg("bike"),
+            }
+        ),
         # back_tire: 初期速度にわずかなノイズ
         # "reset_back_tire": EventTermCfg(
         #     func=reset_joints_by_offset,
@@ -274,24 +275,24 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         #         "asset_cfg": SceneEntityCfg("bike", joint_names=("back_tire_pitch",)),
         #     },
         # ),
-        # "friction_dr": EventTermCfg(
-        #     mode="reset",
-        #     func=dr.geom_friction,
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
-        #         "ranges": (0.3, 0.7),
-        #         "operation": "abs", # absは直接代入する値,scaleは倍率,addはデフォルト値に足す量
-        #     },
-        # ),
-        # "inertia_dr": EventTermCfg(
-        #     func=dr.pseudo_inertia,
-        #     mode="reset",
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
-        #         "alpha_range": (-0.05, 0.05), # 質量密度のlog10スケール,original * e^(2α) 0.05は10.5%誤差
-        #         "t_range": (-0.015, 0.015), #3cmのずれ
-        #     },
-        # ),
+        "friction_dr": EventTermCfg(
+            mode="reset",
+            func=dr.geom_friction,
+            params={
+                "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
+                "ranges": (0.3, 0.7),
+                "operation": "abs", # absは直接代入する値,scaleは倍率,addはデフォルト値に足す量
+            },
+        ),
+        "inertia_dr": EventTermCfg(
+            func=dr.pseudo_inertia,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("bike", geom_names=[".*"]),
+                "alpha_range": (-0.05, 0.05), # 質量密度のlog10スケール,original * e^(2α) 0.05は10.5%誤差
+                "t_range": (-0.015, 0.015), #3cmのずれ
+            },
+        ),
         # "back_tire_gain": EventTermCfg(
         #     func=randomize_pid_gains,
         #     mode="reset",
@@ -300,45 +301,55 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
         #         "ki_range": (0.00516, 0.01204), # 0.0084±40%
         #     }
         # ),
-            # frictionloss（転がり抵抗の模擬）
-        # "tire_frictionloss": EventTermCfg(
-        #     func=dr.joint_friction,
-        #     mode="reset",
-        #     params={
-        #         "asset_cfg": SceneEntityCfg(
-        #             "bike",
-        #             joint_names=("back_tire_pitch", "front_tire_pitch"),
-        #         ),
-        #         "ranges": (0.8, 1.2),
-        #         "operation": "scale",  # デフォルト値の0.8〜1.2倍
-        #     },
-        # ),
+        # kvゲイン
+        "back_tire_gain": EventTermCfg(
+            func=randomize_velocity_kv,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("bike", actuator_names=["back_tire_motor"]),
+                "ranges": (0.8, 1.2),
+                "operation": "scale",
+            }
+        ),
+        # frictionloss（転がり抵抗の模擬）
+        "tire_frictionloss": EventTermCfg(
+            func=dr.joint_friction,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "bike",
+                    joint_names=("back_tire_pitch", "front_tire_pitch"),
+                ),
+                "ranges": (0.8, 1.2),
+                "operation": "scale",  # デフォルト値の0.8〜1.2倍
+            },
+        ),
         # damping
-        # "tire_damping": EventTermCfg(
-        #     func=dr.joint_damping,
-        #     mode="reset",
-        #     params={
-        #         "asset_cfg": SceneEntityCfg(
-        #             "bike",
-        #             joint_names=("back_tire_pitch", "front_tire_pitch"),
-        #         ),
-        #         "ranges": (0.8, 1.2),
-        #         "operation": "scale",
-        #     },
-        # ),
-        #     # armature（ロータ慣性）
-        # "tire_armature": EventTermCfg(
-        #     func=dr.joint_armature,
-        #     mode="reset",
-        #     params={
-        #         "asset_cfg": SceneEntityCfg(
-        #             "bike",
-        #             joint_names=("back_tire_pitch",),  # 駆動輪のみ
-        #         ),
-        #         "ranges": (0.8, 1.2),
-        #         "operation": "scale",
-        #     },
-        # ),
+        "tire_damping": EventTermCfg(
+            func=dr.joint_damping,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "bike",
+                    joint_names=("back_tire_pitch", "front_tire_pitch"),
+                ),
+                "ranges": (0.8, 1.2),
+                "operation": "scale",
+            },
+        ),
+        # armature（ロータ慣性）
+        "tire_armature": EventTermCfg(
+            func=dr.joint_armature,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "bike",
+                    joint_names=("back_tire_pitch",),  # 駆動輪のみ
+                ),
+                "ranges": (0.8, 1.2),
+                "operation": "scale",
+            },
+        ),
     }
 
     return ManagerBasedRlEnvCfg(
