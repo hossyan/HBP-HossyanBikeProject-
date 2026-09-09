@@ -26,8 +26,9 @@ def set_joint_position_target(
     joint_ids = asset_cfg.joint_ids
     if isinstance(joint_ids, list):
         joint_ids = torch.tensor(joint_ids, device=env.device)
- 
-    target = torch.full((len(env_ids),), target_position, device=env.device)
+
+    num_joints = asset.num_joints if isinstance(joint_ids, slice) else len(joint_ids)
+    target = torch.full((len(env_ids), num_joints), target_position, device=env.device)
     asset.set_joint_position_target(target, joint_ids=joint_ids, env_ids=env_ids)
 
 @requires_model_fields("actuator_gainprm", "actuator_biasprm")

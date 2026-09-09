@@ -12,14 +12,20 @@ from mjlab.managers import ActionTerm, ActionTermCfg
 class VelocityPiActionTermCfg(ActionTermCfg):
     entity_name: str = "bike"
     actuator_names: tuple[str, ...] = ("back_tire_pitch",)
-    scale: float = 1.0
-    gear_ratio: float = 2.0      # 減速比
-    kp_nominal: float = 0.0
-    ki_nominal: float = 0.0
-    max_current: float = 23.0     # モータの最大電流 [Nm]
-    torque_constant: float = 0.615  # モータのトルク定数 [Nm/A]
-    vel_noise_std: float = 0.0
-    torque_noise_std: float = 0.0
+    scale: float = 1.0                  # アクションスケール
+    gear_ratio: float = 2.0             # 減速比
+    kp_nominal: float = 0.0             # 比例ゲイン
+    ki_nominal: float = 0.0             # 積分ゲイン
+    max_current: float = 23.0           # モータの最大電流 [A]
+    torque_constant: float = 0.615      # モータのトルク定数 [Nm/A]
+    vel_noise_std: float = 0.0          # エンコーダ速度ノイズ[rad/s]
+    torque_noise_std: float = 0.0       # 出力トルクノイズ[Nm]
+    pole_pairs: int = 14                # 極数
+    cogging_amp: float = 0.0          # トルク振幅[Nm], モータ側
+    action_delay_substeps: int = 15
+    randomize_delay: bool = False
+    delay_substeps_range: tuple[int, int] = (0, 15)
+
 
     def build(self, env) -> VelocityPiActionTerm:
         return VelocityPiActionTerm(self, env)
@@ -33,6 +39,8 @@ class VelocityPiActionTerm(ActionTerm):
     cfg: VelocityPiActionTermCfg
 
     def __init__(self, cfg: VelocityPiActionTermCfg, env):
+        import math
+
         super().__init__(cfg, env)
 
         joint_ids, _ = self._entity.find_joints_by_actuator_names(
@@ -52,22 +60,48 @@ class VelocityPiActionTerm(ActionTerm):
         self._torque_const = cfg.torque_constant
         self._max_current = cfg.max_current 
 
-        self._kp = torch.full((N,), cfg.kp_nominal, device=device)
-        self._ki = torch.full((N,), cfg.ki_nominal, device=device)
+        self._kp = torch.full((N,), cfg.kp_nominal, dtype=torch.float32, device=device)
+        self._ki = torch.full((N,), cfg.ki_nominal, dtype=torch.float32, device=device)
         # ② kp + ki*dt をあらかじめ計算しておく（kp/kiが変わった時だけ更新すればよい）
         self._kp_plus_kidt = self._kp + self._ki * self._dt
 
         self._e_prev = torch.zeros(N, device=device)
         self._u_prev = torch.zeros(N, device=device)
         self._target_vel = torch.zeros(N, device=device)
+        self._target_vel_prev = torch.zeros(N, device=device)
         self._raw_actions = torch.zeros(N, len(joint_ids), device=device)
+
+        # ── action 遅延 ──
+        self._randomize_delay = cfg.randomize_delay
+        self._delay_lo, self._delay_hi = cfg.delay_substeps_range
+
+        if self._randomize_delay:
+            if not (0 <= self._delay_lo <= self._delay_hi <= self._decimation):
+                raise ValueError(
+                    f"delay_substeps_range={cfg.delay_substeps_range} は "
+                    f"0 <= lo <= hi <= decimation({self._decimation}) を満たす必要があります"
+                )
+            self._delay = torch.randint(
+                self._delay_lo, self._delay_hi + 1, (N,), device=device
+            )
+        else:
+            if not (0 <= cfg.action_delay_substeps <= self._decimation):
+                raise ValueError(
+                    f"action_delay_substeps={cfg.action_delay_substeps} は "
+                    f"0〜{self._decimation} の範囲である必要があります"
+                )
+            self._delay = torch.full(
+                (N,), cfg.action_delay_substeps, dtype=torch.long, device=device
+            )
 
         self._vel_noise_buf = torch.zeros(self._decimation, N, device=device)
         self._torque_noise_buf = torch.zeros(self._decimation, N, device=device)
         self._substep_idx = 0  # 現在何回目の物理サブステップか(0〜decimation-1)
 
-        self._ev_start = torch.cuda.Event(enable_timing=True)  # 使い回し用
-        self._ev_end = torch.cuda.Event(enable_timing=True)
+        self._cogging_phase = torch.rand(N, device=device) * 2 * math.pi
+
+
+
 
     def _refresh_pid_coeffs(self) -> None:
         """kp/kiを変更した時(resetやランダマイズ時)はこれを呼ぶ。"""
@@ -83,6 +117,8 @@ class VelocityPiActionTerm(ActionTerm):
 
     def process_actions(self, actions: torch.Tensor) -> None:
         self._raw_actions.copy_(actions)
+
+        self._target_vel_prev.copy_(self._target_vel)
         self._target_vel.copy_(actions.squeeze(-1) * self.cfg.scale)
 
         # ── 15回分のノイズをdecimation1回のRNG呼び出しでまとめて生成 ──
@@ -94,10 +130,16 @@ class VelocityPiActionTerm(ActionTerm):
         self._substep_idx = 0  # 新しいポリシー周期の先頭に戻す
 
     def apply_actions(self) -> None:
+        # 遅延サブステップ数を過ぎるまでは前周期の指令を使う
+        target_vel = torch.where(
+            self._delay > self._substep_idx, self._target_vel_prev, self._target_vel
+        )
+
         current_vel_wheel = self._entity.data.joint_vel.index_select(1, self._joint_ids).squeeze(-1)
         current_vel_motor = current_vel_wheel * self._gear
         current_vel_motor = current_vel_motor + self._vel_noise_buf[self._substep_idx]
-        e_motor = self._target_vel - current_vel_motor
+        # e_motor = self._target_vel - current_vel_motor
+        e_motor = target_vel - current_vel_motor
 
         delta_u = self._kp_plus_kidt * e_motor - self._kp * self._e_prev
         u = self._u_prev + delta_u
@@ -105,6 +147,12 @@ class VelocityPiActionTerm(ActionTerm):
 
         torque_motor = u * self._torque_const
         torque_motor = torque_motor + self._torque_noise_buf[self._substep_idx]
+
+        pos_wheel = self._entity.data.joint_pos.index_select(1, self._joint_ids).squeeze(-1)
+        theta_rotor = pos_wheel * self._gear
+        cogging = self.cfg.cogging_amp * torch.sin(self.cfg.pole_pairs * theta_rotor + self._cogging_phase)
+        torque_motor = torque_motor + cogging
+
         torque_wheel = torque_motor * self._gear
 
         self._e_prev.copy_(e_motor)
@@ -119,7 +167,16 @@ class VelocityPiActionTerm(ActionTerm):
         self._e_prev[env_ids] = 0.0
         self._u_prev[env_ids] = 0.0
         self._target_vel[env_ids] = 0.0
+        self._target_vel_prev[env_ids] = 0.0
         self._raw_actions[env_ids] = 0.0 
+
+        if self._randomize_delay:
+            self._delay[env_ids] = torch.randint(
+                self._delay_lo,
+                self._delay_hi + 1,
+                (len(env_ids),),
+                device=self._delay.device
+            )
 
 def randomize_pid_gains(
     env,

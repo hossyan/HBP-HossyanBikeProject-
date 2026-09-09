@@ -136,7 +136,7 @@ class SharedTarget:
             return self._sq_on, self._sq_amplitude, actual_period_us
 
 
-def _keyboard_listener(shared_target: SharedTarget, step: float = 1.0):
+def _keyboard_listener(shared_target: SharedTarget, step: float = 0.2):
     """
     別スレッドでキー入力を監視し、shared_target を書き換える。
     Up/Down : ±step
@@ -447,7 +447,7 @@ class EnvWrapper:
             if self._joint_idx is not None:
                 val = joint_vel[0, self._joint_idx].item()
                 val_noisy = val + random.gauss(0.0, 0.0287)
-                print(f"{self._step_count * 15:5d}, {target:2.1f}, {val_noisy * 2:6.4f}")
+                print(f"{self._step_count * 15:5d}, {target:2.1f}, {val * 2:6.4f}")
             else:
                 print(f"{self._step_count:5d}, target={target}, joint_vel={joint_vel[0].cpu().numpy()}")
 

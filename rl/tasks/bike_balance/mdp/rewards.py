@@ -40,3 +40,8 @@ def back_tire_vel_penalty(
     bike: Entity = env.scene[asset_cfg.name]
     back_tire_vel = bike.data.joint_vel[:, asset_cfg.joint_ids].squeeze(-1)
     return 1.0 - _tolerance(back_tire_vel, margin=margin)
+
+def joint_acc_l2(env, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    asset = env.scene[asset_cfg.name]
+    acc = asset.data.joint_acc[:, asset_cfg.joint_ids]
+    return torch.sum(torch.square(acc), dim=1)
