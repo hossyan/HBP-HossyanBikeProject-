@@ -136,7 +136,7 @@ class SharedTarget:
             return self._sq_on, self._sq_amplitude, actual_period_us
 
 
-def _keyboard_listener(shared_target: SharedTarget, step: float = 0.2):
+def _keyboard_listener(shared_target: SharedTarget, step: float = 1.0):
     """
     別スレッドでキー入力を監視し、shared_target を書き換える。
     Up/Down : ±step
@@ -228,7 +228,7 @@ CONTROL_STEP_US = 10000      # 10 ms
 SQUARE_START_ENABLED = False
 
 # "native" / "viser" / "headless"
-VIEWER = "native"
+VIEWER = "headless"
 
 NUM_ENVS = 1
 GPU_ID = 0          # -1 でCPU
@@ -375,8 +375,9 @@ def run_motor_test():
             _run_with_native_viewer(env, agent)
         elif VIEWER == "viser":
             _run_with_viser(env, agent)
-        else:
-            _run_headless(env, agent, steps=STEPS)
+        elif VIEWER == "headless":
+            num_steps = int(20.0 / (env.physics_dt * env.cfg.decimation))
+            _run_headless(env, agent, num_steps=num_steps)
     finally:
         env.close()
 
@@ -406,7 +407,7 @@ def profile_apply_actions(term, n_calls: int = 2000, warmup: int = 100):
 class EnvWrapper:
     """viewer側が期待するインターフェースに合わせるための薄いラッパー"""
 
-    def __init__(self, env, log_every: int = 100, joint_name: str | None = None, shared_target: SharedTarget | None = None):
+    def __init__(self, env, log_every: int = 1, joint_name: str | None = None, shared_target: SharedTarget | None = None):
         self.env = env
         self._obs_dict = None
         self.num_envs = env.num_envs
@@ -424,6 +425,8 @@ class EnvWrapper:
             articulation = self.env.scene["bike"]
             self._joint_idx = articulation.joint_names.index(joint_name)
 
+        self._logf = open("sim_log.csv", "w")
+
     def __getattr__(self, name: str):
         return getattr(self.env, name)
 
@@ -440,16 +443,16 @@ class EnvWrapper:
         self._obs_dict, _, terminated, truncated, _ = self.env.step(actions)
 
         if self._log_every > 0 and self._step_count % self._log_every == 0:
-            joint_vel = self.env.scene["bike"].data.joint_vel
-            # get() は act() で確定した「今ステップの指令値」を返すので、
-            # 矩形波ONのときもログと実際の指令が必ず一致する。
+            data = self.env.scene["bike"].data
             target = self.shared_target.get() if self.shared_target is not None else None
+
             if self._joint_idx is not None:
-                val = joint_vel[0, self._joint_idx].item()
-                val_noisy = val + random.gauss(0.0, 0.0287)
-                print(f"{self._step_count * 15:5d}, {target:2.1f}, {val * 2:6.4f}")
-            else:
-                print(f"{self._step_count:5d}, target={target}, joint_vel={joint_vel[0].cpu().numpy()}")
+                pos = data.joint_pos[0, self._joint_idx].item() * 2
+                vel = data.joint_vel[0, self._joint_idx].item() * 2
+                t_ms = self._step_count * self.env.cfg.decimation * 1
+                # val_noisy = val + random.gauss(0.0, 0.0287)
+                print(f"{t_ms:6d},{pos:.6f},{vel:.6f},{target:.1f}")
+                self._logf.write(f"{t_ms:6d},{pos:.6f},{vel:.6f},{target:.1f}\n")
 
         self._step_count += 1
 
@@ -491,26 +494,23 @@ def _run_with_viser(env, agent):
     viewer.run()
 
 
-def _run_headless(env, agent, steps: int):
-    print(f"[motor_test] Running headless for {steps} steps.")
-    obs_dict, _ = env.reset()
+def _run_headless(env, agent, num_steps):
+    print("[motor_test] Running headless.")
+    wrapped_env = EnvWrapper(
+        env,
+        log_every=LOG_EVERY_N_STEPS,
+        joint_name=LOG_JOINT_NAME,
+        shared_target=agent.shared_target,
+    )
+    obs = wrapped_env.reset()
+    policy = PolicyWrapper(agent)
 
-    for step in range(steps):
-        action = agent.act(obs_dict["actor"])
-        obs_dict, reward, terminated, truncated, _ = env.step(action)
+    for _ in range(num_steps):
+        actions = policy(obs)
+        wrapped_env.step(actions)
+        obs = wrapped_env._obs_dict["actor"]
 
-        if step % 100 == 0:
-            joint_vel = env.scene["bike"].data.joint_vel
-            print(
-                f"  Step {step:5d} | "
-                f"action = {action[0].cpu().numpy()} | "
-                f"joint_vel(sample) = {joint_vel[0].cpu().numpy()}"
-            )
-
-        if terminated.any() or truncated.any():
-            obs_dict, _ = env.reset()
-
-    print("[motor_test] Done.")
+    wrapped_env._logf.close()
 
 def _run_headless_bench(env, agent, steps: int = 2000, warmup: int = 200):
     """headlessでsteps/secを計測する(printやviewerなし、純粋な速度計測用)"""
