@@ -136,7 +136,7 @@ class SharedTarget:
             return self._sq_on, self._sq_amplitude, actual_period_us
 
 
-def _keyboard_listener(shared_target: SharedTarget, step: float = 1.0):
+def _keyboard_listener(shared_target: SharedTarget, step: float = 0.6):
     """
     別スレッドでキー入力を監視し、shared_target を書き換える。
     Up/Down : ±step

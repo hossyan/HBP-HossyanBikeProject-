@@ -160,14 +160,14 @@ def bike_balance_env_cfg(num_envs: int = 1) -> ManagerBasedRlEnvCfg:
             entity_name="bike",
             actuator_names=("back_tire_pitch",),
             scale=20.0,
-            kp_nominal=1.5,
-            ki_nominal=30.6,
+            kp_nominal=1.0,
+            ki_nominal=0.002,
             max_current=23.0,
             # vel_noise_std=0.01,
             # torque_noise_std=0.1,
             randomize_delay=False,
             delay_substeps_range=(11, 15),
-            cogging_amp=0.543,
+            cogging_amp=0.3878,
         ),
         # fork: position アクチュエータ（位置制御）
         # 現在は60degで固定のためコメントアウト
