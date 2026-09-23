@@ -62,8 +62,8 @@ class VelocityPiActionTerm(ActionTerm):
         self._torque_const = cfg.torque_constant
         self._max_current = cfg.max_current 
 
-        self._kp = torch.full((N,), cfg.kp_nominal * cfg.gearhead_ratio, dtype=torch.float32, device=device)
-        self._ki = torch.full((N,), cfg.ki_nominal * cfg.gearhead_ratio, dtype=torch.float32, device=device)
+        self._kp = torch.full((N,), cfg.kp_nominal, dtype=torch.float32, device=device)
+        self._ki = torch.full((N,), cfg.ki_nominal, dtype=torch.float32, device=device)
         # ② kp + ki*dt をあらかじめ計算しておく（kp/kiが変わった時だけ更新すればよい）
         self._kp_plus_kidt = self._kp + self._ki * self._dt
 
@@ -72,6 +72,8 @@ class VelocityPiActionTerm(ActionTerm):
         self._target_vel = torch.zeros(N, device=device)
         self._target_vel_prev = torch.zeros(N, device=device)
         self._raw_actions = torch.zeros(N, len(joint_ids), device=device)
+
+        self._vel_filtered = torch.zeros(N, device=device)
 
         # ── action 遅延 ──
         self._randomize_delay = cfg.randomize_delay
@@ -140,6 +142,7 @@ class VelocityPiActionTerm(ActionTerm):
         current_vel_wheel = self._entity.data.joint_vel.index_select(1, self._joint_ids).squeeze(-1)
         current_vel_motor = current_vel_wheel * self._belt_ratio
         current_vel_motor = current_vel_motor + self._vel_noise_buf[self._substep_idx]
+        # self._vel_filtered = 0.974 * self._vel_filtered + 0.026 * current_vel_motor
         e_motor = target_vel - current_vel_motor
 
         delta_u = self._kp_plus_kidt * e_motor - self._kp * self._e_prev
@@ -170,6 +173,7 @@ class VelocityPiActionTerm(ActionTerm):
         self._target_vel[env_ids] = 0.0
         self._target_vel_prev[env_ids] = 0.0
         self._raw_actions[env_ids] = 0.0 
+        self._vel_filtered[env_ids] = 0.0
 
         if self._randomize_delay:
             self._delay[env_ids] = torch.randint(

@@ -136,7 +136,7 @@ class SharedTarget:
             return self._sq_on, self._sq_amplitude, actual_period_us
 
 
-def _keyboard_listener(shared_target: SharedTarget, step: float = 0.6):
+def _keyboard_listener(shared_target: SharedTarget, step: float = 1.0):
     """
     別スレッドでキー入力を監視し、shared_target を書き換える。
     Up/Down : ±step
@@ -214,21 +214,21 @@ GEAR_RATIO = 2.0
 # Enterキーでこの矩形波のON/OFFを切り替える。
 
 # 振幅 [rad/s]。TARGET_MODE と同じ軸で解釈される(手動目標値に加算される)。
-SQUARE_AMPLITUDE = 0.5
+SQUARE_AMPLITUDE = 2.0
 
 # 周期 [us]。1000 us 単位で指定する。
 # 実際の切り替え分解能は制御ステップ(CONTROL_STEP_US)に制限されるため、
 # 半周期 = 周期/2 が CONTROL_STEP_US の整数倍になるように指定すること。
-SQUARE_PERIOD_US = 20000     # 20 ms 周期 = 10 ms ごとに符号反転
+SQUARE_PERIOD_US = 46000     # 20 ms 周期 = 10 ms ごとに符号反転
 
 # 1制御ステップの長さ [us]。env_cfg の sim.dt * decimation と一致させること。
-CONTROL_STEP_US = 10000      # 10 ms
+CONTROL_STEP_US = 2000      # 2 ms
 
 # 起動直後から矩形波を有効にするか
-SQUARE_START_ENABLED = False
+SQUARE_START_ENABLED = True
 
 # "native" / "viser" / "headless"
-VIEWER = "headless"
+VIEWER = "native"
 
 NUM_ENVS = 1
 GPU_ID = 0          # -1 でCPU
@@ -376,7 +376,7 @@ def run_motor_test():
         elif VIEWER == "viser":
             _run_with_viser(env, agent)
         elif VIEWER == "headless":
-            num_steps = int(20.0 / (env.physics_dt * env.cfg.decimation))
+            num_steps = int(10.0 / (env.physics_dt * env.cfg.decimation))
             _run_headless(env, agent, num_steps=num_steps)
     finally:
         env.close()
@@ -421,6 +421,7 @@ class EnvWrapper:
         self._log_every = log_every
         self._joint_idx = None
         self.shared_target = shared_target
+        self._vel_filtered = 0.0
         if joint_name is not None:
             articulation = self.env.scene["bike"]
             self._joint_idx = articulation.joint_names.index(joint_name)
@@ -432,6 +433,7 @@ class EnvWrapper:
 
     def reset(self):
         self._obs_dict, _ = self.env.reset()
+        self._vel_filtered = 0.0
         return self._obs_dict["actor"]
 
     def get_observations(self):
@@ -449,10 +451,11 @@ class EnvWrapper:
             if self._joint_idx is not None:
                 pos = data.joint_pos[0, self._joint_idx].item() * 2
                 vel = data.joint_vel[0, self._joint_idx].item() * 2
+                self._vel_filtered = 0 * self._vel_filtered + 1 * vel
                 t_ms = self._step_count * self.env.cfg.decimation * 1
                 # val_noisy = val + random.gauss(0.0, 0.0287)
-                print(f"{t_ms:6d},{pos:.6f},{vel:.6f},{target:.1f}")
-                self._logf.write(f"{t_ms:6d},{pos:.6f},{vel:.6f},{target:.1f}\n")
+                print(f"{t_ms:6d},{pos:.6f},{self._vel_filtered:.6f},{target:.1f}")
+                self._logf.write(f"{t_ms:6d},{pos:.6f},{self._vel_filtered:.6f},{target:.1f}\n")
 
         self._step_count += 1
 
