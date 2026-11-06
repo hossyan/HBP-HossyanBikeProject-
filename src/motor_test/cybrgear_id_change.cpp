@@ -31,8 +31,8 @@
 // // ==============================
 // //  設定 (必要に応じて変更)
 // // ==============================
-// static const uint8_t CURRENT_CAN_ID = 0x7F;  // 現在のモーターCAN ID (デフォルト: 0x7F)
-// static const uint8_t NEW_CAN_ID     = 0x7E;  // 変更後のCAN ID (0x01 ~ 0x7F)
+// static const uint8_t CURRENT_CAN_ID = 0x7E;  // 現在のモーターCAN ID (デフォルト: 0x7F)
+// static const uint8_t NEW_CAN_ID     = 0x7F;  // 変更後のCAN ID (0x01 ~ 0x7F)
 // static const uint8_t MASTER_ID      = 0x00;  // マスター(M5Stack)のCAN ID
 
 // // MCP2515 ピン設定 (動作確認済みコードに準拠)

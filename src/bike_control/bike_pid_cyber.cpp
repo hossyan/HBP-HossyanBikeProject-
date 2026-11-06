@@ -1,20 +1,7 @@
 // #include <M5Unified.h>
 // #include <mcp_can.h>
 // #include <SPI.h>
-// #include <MadgwickAHRS.h>
 // #include <PS4Controller.h>
-
-// Madgwick filter;
-// unsigned long microsPerReading, microsPre;
-// float ax, ay, az;
-// float gx, gy, gz;
-// const float sampleRate = 100.0f;
-// float roll = 0.0f;
-// float roll_rad = 0.0f;
-
-// float gx_rad = 0.0f;
-// float filtered_gx = 0.0f;
-// float alpha = 0.8f; // フィルタ係数
 
 // // --- ピン・ハードウェア設定 ---
 // #define CAN0_INT 15
@@ -70,7 +57,6 @@
 // //  関数プロトタイプ
 // void init_can();
 // void enable_motor(uint8_t motor_id);
-// void set_zero_position(uint8_t motor_id);
 // void send_parameter_write(uint8_t motor_id, uint16_t param_index, float value, uint8_t is_byte = 0);
 // void control_position(uint8_t motor_id, float rad);
 // void control_current(uint8_t motor_id, float ampere);
@@ -117,13 +103,10 @@
 //     M5.begin(cfg);
 //     M5.Imu.begin();
 //     Serial.begin(115200);
-//     filter.begin(sampleRate); // サンプルレートを設定
 //     PS4.begin("08:F9:E0:F5:E7:D6");
 //     init_can();
 //     delay(100);
 
-//     microsPerReading = 1000000 / sampleRate;
-//     microsPre = micros();
 
 //     M5.Display.setTextSize(3);
 
@@ -157,21 +140,6 @@
 
 // void loop() {
 //     M5.update();
-
-//     // IMUの更新
-//     unsigned long microsNow = micros();
-//     if (microsNow - microsPre >= microsPerReading) {
-//         M5.Imu.getAccelData(&ax, &ay, &az);
-//         M5.Imu.getGyroData(&gx, &gy, &gz);
-//         filter.updateIMU(gx, gy, gz, ax, ay, az);
-//         roll = filter.getRoll();
-//         microsPre = microsNow;
-
-//         roll_rad = roll * (M_PI / 180.0f);
-//         gx_rad = gx * (M_PI / 180.0f);
-
-//         filtered_gx = alpha * gx_rad + (1 - alpha) * filtered_gx; // 低域フィルタリング
-//     }
 
 //     // cybergearの角度・角速度取得
 //     float front_motor_pos, front_motor_spd;
@@ -233,7 +201,6 @@
 
 //             M5.Display.setCursor(0, 10);
 //             M5.Display.printf("Power: %d\n", power_on);
-//             M5.Display.printf("Roll: %6.2f\n", roll_rad);
 //             M5.Display.printf("Kp: %6.3f\n", kp);
 //             M5.Display.printf("Ki: %6.3f\n", ki);
 //             M5.Display.printf("Kd: %6.3f\n", kd);
@@ -241,16 +208,6 @@
 //             M5.Display.printf("motor: %6.3f\n", output * speed_max);
 //         }
 //     }
-
-//     // フィードバック制御
-//     // float roll_error = roll_rad - target_state[0];
-//     // float roll_velocity_error = filtered_gx - target_state[1];
-//     // float wheel_velocity_error = back_motor_spd - target_state[2];
-//     // output = -kp * roll_error - ki * roll_velocity_error - kd * wheel_velocity_error;
-//     // if (output > 1) output = 1;
-//     // if (output < -1) output = -1;
-//     // back_motor_target = output * speed_max; // 目標速度を設定（最大30rad/s）
-//     // back_motor_target = kp;
 
 //     if(task10ms.check()) {
 //         if(banban){
@@ -287,11 +244,7 @@
 //     CAN0.sendMsgBuf(id, 1, 0, dummy);
 // }
 
-// void set_zero_position(uint8_t motor_id) {
-//     uint32_t id = ((uint32_t)MODE_SET_ZERO_POS << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
-//     uint8_t dummy[8] = {0};
-//     CAN0.sendMsgBuf(id, 1, 8, dummy);
-// }
+
 
 // void send_parameter_write(uint8_t motor_id, uint16_t param_index, float value, uint8_t is_byte) {
 //     uint32_t id = ((uint32_t)MODE_PARAM_WRITE << 24) | ((uint32_t)MASTER_ID << 8) | motor_id;
